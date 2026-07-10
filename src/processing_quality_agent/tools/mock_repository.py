@@ -88,7 +88,46 @@ class InMemoryRepository:
     ) -> DocumentContext:
         if document_id not in self.contexts:
             raise KeyError(f"document not found: {document_id}")
-        return deepcopy(self.contexts[document_id])
+        context = deepcopy(self.contexts[document_id])
+        current_run_id = context.parser_run.run_id if context.parser_run else None
+        if not run_id or run_id == current_run_id:
+            return context
+        if not run_id.startswith("mock-run-"):
+            raise KeyError(f"parser run not found: {run_id}")
+
+        # Local mock mode materializes a new immutable parser-output version after a
+        # successful workflow. It intentionally leaves the source manifest untouched.
+        parser_id = "azure_document_intelligence"
+        context.parser_run = ParserRun(
+            run_id=run_id,
+            document_id=document_id,
+            parser_id=parser_id,
+            parser_version="mock-recovery-1",
+            status="SUCCEEDED",
+            latency_ms=1100,
+            estimated_cost=0.05,
+        )
+        if context.silver_document:
+            context.silver_document.run_id = run_id
+            context.silver_document.parser_confidence = 0.96
+            if context.manifest.source_metadata.get("tables_expected"):
+                context.silver_document.table_payload = [
+                    {
+                        "row_count": 2,
+                        "column_count": 2,
+                        "cells": [
+                            {"row_index": 0, "column_index": 0, "content": "Policy"},
+                            {"row_index": 0, "column_index": 1, "content": "Value"},
+                        ],
+                    }
+                ]
+        for element in context.silver_elements:
+            element.run_id = run_id
+        context.manifest.current_run_id = run_id
+        context.manifest.processing_status = "RECOVERY_SUCCEEDED"
+        if all(item.run_id != run_id for item in self.history.setdefault(document_id, [])):
+            self.history[document_id].append(deepcopy(context.parser_run))
+        return context
 
     async def get_bronze_manifest(self, document_id: str) -> BronzeManifest:
         return (await self.get_document_context(document_id)).manifest

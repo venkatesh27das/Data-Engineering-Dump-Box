@@ -51,8 +51,11 @@ async def test_approved_recovery_executes(orchestrator):
     assert result.resulting_run_id.startswith("mock-run-")
     assert result.recovery_attempt.before_quality_score is not None
     assert result.recovery_attempt.after_quality_score is not None
-    assert result.recovery_attempt.outcome == "UNCHANGED"
+    assert result.recovery_attempt.outcome == "IMPROVED"
     assert "create_recovery_attempt" in result.audit.invoked_tools
+    assert "record_quality_assessment" in result.audit.invoked_tools
+    assert "update_processing_status" in result.audit.invoked_tools
+    assert result.document_context.parser_run.run_id == result.resulting_run_id
 
 
 async def test_compare_two_parsers(orchestrator):
@@ -76,3 +79,27 @@ async def test_optimize_proposes_yaml_without_applying(orchestrator):
     assert "primary_parser: azure_document_intelligence" in result.proposed_policy_yaml
     assert result.final_decision == "PROPOSED"
     assert result.approval_required
+
+
+async def test_optimize_applies_approved_policy_idempotently(orchestrator):
+    request = OptimizePolicyRequest(
+        document_class="scanned_policy_pdf",
+        allowed_parser_candidates=["databricks_primary", "azure_document_intelligence"],
+        apply=True,
+        approval=ApprovalContext(
+            approved=True, approval_reference="CHG-2", approved_by="approver@example.com"
+        ),
+        actor="engineer@example.com",
+        dry_run=False,
+    )
+    first = await orchestrator.optimize(request)
+    second = await orchestrator.optimize(request)
+    assert first.final_decision == "APPLIED"
+    assert "apply_approved_routing_policy" in first.audit.invoked_tools
+    assert second.final_decision == "APPLIED"
+    policy_writes = [
+        key
+        for key in orchestrator.repository.operations
+        if key.startswith("apply_approved_routing_policy:")
+    ]
+    assert len(policy_writes) == 1

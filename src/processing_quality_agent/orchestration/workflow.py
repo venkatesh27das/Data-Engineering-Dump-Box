@@ -148,7 +148,13 @@ class AgentOrchestrator:
             run = await self.workflow_client.wait_for_completion(run.run_id)
             state.invoked_tools.append("wait_for_completion")
         state.transition(WorkflowState.VERIFYING_RECOVERY)
-        after = before if request.dry_run else self.quality.evaluate(context)
+        recovered_context = context
+        if not request.dry_run:
+            recovered_context = await self.repository.get_document_context(
+                request.document_id, run.run_id
+            )
+            state.invoked_tools.append("get_document_context")
+        after = before if request.dry_run else self.quality.evaluate(recovered_context)
         attempt = None
         if not request.dry_run:
             delta = after.final_quality_score - before.final_quality_score
@@ -176,12 +182,33 @@ class AgentOrchestrator:
                 attempt.model_dump(mode="json"),
             )
             state.invoked_tools.append("create_recovery_attempt")
+            await self.repository.write_idempotent(
+                "record_quality_assessment",
+                f"{key}:quality",
+                after.model_dump(mode="json"),
+            )
+            state.invoked_tools.append("record_quality_assessment")
+            await self.repository.write_idempotent(
+                "update_processing_status",
+                f"{key}:status",
+                {
+                    "document_id": request.document_id,
+                    "run_id": run.run_id,
+                    "status": "RECOVERY_VERIFIED",
+                    "quality_decision": after.decision.value,
+                    "actor": request.actor,
+                    "approval_reference": request.approval.approval_reference,
+                    "reason": request.reason,
+                    "correlation_id": cid,
+                },
+            )
+            state.invoked_tools.append("update_processing_status")
         state.transition(WorkflowState.COMPLETED)
         self._sync_audit(state, audit)
         response = AgentOperationResponse(
             correlation_id=cid,
             operation_mode=OperationMode.RECOVER,
-            document_context=context,
+            document_context=recovered_context,
             diagnosis=diagnosis,
             quality_assessment=after,
             recovery_plan=plan,
@@ -231,9 +258,29 @@ class AgentOrchestrator:
         policy_yaml = self.optimization.propose(request.document_class, comparison)
         if request.apply and not request.dry_run:
             require_approval(request.approval)
+            key = idempotency_key(
+                "routing-policy",
+                request.document_class,
+                "policy-proposal",
+                comparison.recommended_parser_id,
+                {
+                    "current": request.current_routing_policy,
+                    "candidates": request.allowed_parser_candidates,
+                    "proposal": policy_yaml,
+                },
+            )
+            await self.repository.write_idempotent(
+                "apply_approved_routing_policy",
+                key,
+                {
+                    "document_class": request.document_class,
+                    "policy_yaml": policy_yaml,
+                    "actor": request.actor,
+                    "approval_reference": request.approval.approval_reference,
+                    "correlation_id": cid,
+                },
+            )
             state.invoked_tools.append("apply_approved_routing_policy")
-        else:
-            state.invoked_tools.append("propose_routing_policy")
         state.transition(WorkflowState.COMPLETED)
         self._sync_audit(state, audit)
         response = AgentOperationResponse(

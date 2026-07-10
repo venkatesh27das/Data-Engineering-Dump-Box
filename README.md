@@ -273,7 +273,7 @@ Databricks-compatible source notebooks provide table setup, UC-function registra
 - Production Delta/UC or managed-MCP repository is not implemented generically; startup fails closed when mock tools are disabled.
 - Batch/run-only selector resolution requires a production repository resolver.
 - Live AI-judge endpoint invocation is an extension point.
-- Mock recovery reuses source context during verification.
+- Mock recovery materializes a synthetic immutable output version; production verification must poll governed Silver tables for the workflow's resulting run ID.
 - Operation state and review queue are in memory.
 - External approval verification and human-review UI are not connected.
 - Provider pricing and production concurrency controls require workspace calibration.
