@@ -1,12 +1,12 @@
-.PHONY: install test lint typecheck run check
+.PHONY: install run test lint typecheck check
 install:
 	python -m pip install -e '.[dev]'
+run:
+	uvicorn source_readiness_agent.app:app --host 0.0.0.0 --port 8000
 test:
 	pytest
 lint:
 	ruff check .
 typecheck:
 	mypy src
-run:
-	uvicorn processing_quality_agent.app:app --reload --port 8000
 check: lint typecheck test

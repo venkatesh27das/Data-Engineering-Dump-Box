@@ -1,11 +1,16 @@
+version: 1
 parsers:
-  databricks_primary:
+  - parser_id: databricks_primary
+    parser_type: DATABRICKS_NATIVE
     enabled: true
-    invocation: workflow
-    job_id_env: PRIMARY_PARSER_JOB_ID
-  azure_document_intelligence:
-    enabled: false
-    model_id: prebuilt-layout
-    authentication: managed_identity
-  custom_parser:
-    enabled: false
+    supported_file_types: [pdf, docx, pptx]
+    endpoint_reference: configured_databricks_parser
+  - parser_id: azure_document_intelligence
+    parser_type: AZURE_DOCUMENT_INTELLIGENCE
+    enabled: true
+    supported_file_types: [pdf, png, jpg, jpeg, tif, tiff]
+    endpoint_reference: configured_azure_document_intelligence
+  - parser_id: native_text_reader
+    parser_type: NATIVE
+    enabled: true
+    supported_file_types: [txt, html, xml, json]

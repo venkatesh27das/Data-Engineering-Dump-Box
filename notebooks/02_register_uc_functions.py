@@ -1,10 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Register governed UC functions
-# MAGIC Review `resources/uc_functions.sql`, substitute bundle variables during deployment, and execute as a function owner. Never expose a free-form SQL tool to the agent.
+# MAGIC Register reviewed Unity Catalog functions from `resources/uc_functions.sql`. Replace bundle placeholders through deployment configuration; do not accept identifiers or SQL from an agent request.
 
 # COMMAND ----------
-catalog = spark.conf.get("processing_quality.catalog")
-operations_schema = spark.conf.get("processing_quality.operations_schema")
-assert catalog and operations_schema
-display(spark.sql(f"SHOW FUNCTIONS IN `{catalog}`.`{operations_schema}`"))
+
+raise RuntimeError("Deployment administrator must review and substitute bundle-managed catalog/schema identifiers before registration")

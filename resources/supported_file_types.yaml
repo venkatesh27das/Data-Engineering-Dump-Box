@@ -1,0 +1,17 @@
+version: 1
+audio_video_enabled: false
+types:
+  pdf: {mime: application/pdf, modality: DOCUMENT, enabled: true}
+  docx: {mime: application/vnd.openxmlformats-officedocument.wordprocessingml.document, modality: DOCUMENT, enabled: true}
+  pptx: {mime: application/vnd.openxmlformats-officedocument.presentationml.presentation, modality: DOCUMENT, enabled: true}
+  png: {mime: image/png, modality: IMAGE, enabled: true}
+  jpg: {mime: image/jpeg, modality: IMAGE, enabled: true}
+  jpeg: {mime: image/jpeg, modality: IMAGE, enabled: true}
+  tif: {mime: image/tiff, modality: IMAGE, enabled: true}
+  tiff: {mime: image/tiff, modality: IMAGE, enabled: true}
+  txt: {mime: text/plain, modality: TEXT, enabled: true}
+  html: {mime: text/html, modality: TEXT, enabled: true}
+  xml: {mime: application/xml, modality: STRUCTURED, enabled: true}
+  json: {mime: application/json, modality: STRUCTURED, enabled: true}
+  mp3: {mime: audio/mpeg, modality: AUDIO, enabled: false}
+  mp4: {mime: video/mp4, modality: VIDEO, enabled: false}

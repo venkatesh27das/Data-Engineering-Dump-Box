@@ -1,121 +1,97 @@
-# Processing Quality, Recovery & Parser Optimization Agent
+# Source Readiness & Pipeline Configuration Agent
 
-A production-oriented Azure Databricks agent for governing document processing between immutable Bronze files and quality-gated Silver outputs. It validates parser output, diagnoses failures, compares parser performance, plans bounded recovery, triggers only approved actions, verifies recovery outcomes, and proposes routing-policy improvements.
+A production-oriented MVP for assessing enterprise document sources before Azure Databricks onboarding. It profiles a bounded representative sample, reports unsupported and anomalous files, recommends ingestion and parser routing, generates a versioned configuration proposal, validates it deterministically, runs an approved sample, and produces audit-ready evidence.
 
-This is a data-engineering and platform-operations agent. It is not a consumer chatbot, RAG application, Gold-domain model, ingestion connector, or document-authoring tool.
+This is an engineering control-plane agent, not a generic chatbot. Its boundary ends at source inspection, ingestion, ADLS landing, and immutable Bronze registration. It may inspect sample Silver results but never publishes production Silver, builds Gold assets, constructs domain knowledge graphs, or provides business-facing search.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    U[Data Engineer or Pipeline Event] --> A[Databricks App - ResponsesAgent]
-    A --> O[Agent Orchestrator]
-    O --> R[Bronze and Silver Read Tools]
-    O --> Q[Quality Skills]
-    O --> J[AI Quality Judge]
-    O --> P[Parser Adapters]
-    O --> W[Workflow and Recovery Tools]
+    U[Data Engineer] --> A[Databricks App - ResponsesAgent]
+    A --> O[Source Readiness Orchestrator]
 
-    R --> B[(Bronze Delta)]
-    R --> S[(Silver Delta)]
-    P --> DV[Databricks Native Parser]
-    P --> ADI[Azure Document Intelligence]
-    W --> DBW[Databricks Workflows]
+    O --> C[Source Connectors]
+    O --> P[Profiling and Readiness Skills]
+    O --> V[Configuration Validators]
+    O --> T[Governed Action Tools]
+
+    C --> ADLS[ADLS Gen2]
+    C --> SP[SharePoint]
+    C --> API[Enterprise APIs]
+
+    T --> ADF[Azure Data Factory]
+    T --> DBW[Databricks Workflows]
+    T --> UC[Unity Catalog Functions]
+
+    DBW --> LAND[ADLS Landing]
+    LAND --> BR[(Bronze UC Volume and Delta Manifest)]
 
     O --> AP{Approval Required}
-    AP -->|Approved| W
-    AP -->|Not approved| REC[Recommendation Only]
+    AP -->|Approved| SR[Controlled Sample Run]
+    AP -->|Not Approved| REC[Recommendation Only]
+
+    SR --> VAL[Sample Validation]
+    VAL --> READY[Readiness Decision]
 
     O --> M[MLflow Tracing and Audit]
 ```
 
-The FastAPI/ResponsesAgent layer handles transport only. `AgentOrchestrator` owns state, correlation, evidence, approval, and tool audit. Services and skills contain domain decisions; tools isolate repositories, Workflows, MCP, and parser SDKs. Approval, state transitions, retry limits, URI allowlisting, SQL prohibition, and idempotency are enforced in Python rather than relying on a prompt.
-
-See [Architecture](docs/architecture.md) for component responsibilities, runtime sequences, state transitions, immutability, and extension points.
+Transport is isolated in `app.py` and `agent.py`. The orchestrator chooses a fixed operating mode; it cannot create tools dynamically. Services own use cases, deterministic skills own decisions, connectors are read-only, and action adapters enforce approval and idempotency in Python.
 
 ## Operating modes
 
-| Mode | Behavior | Production mutation |
+| Mode | Outcome | Mutation |
 |---|---|---:|
-| `INVESTIGATE` | Load context, score output, diagnose failure, explain evidence | no |
-| `RECOVER` | Investigate, plan, validate approval, create a new parser run, re-evaluate, record before/after | approved only |
-| `COMPARE_PARSERS` | Rank parser quality, success, latency, cost, and stability | no routing change |
-| `OPTIMIZE_POLICY` | Propose primary/fallback parser, thresholds, eligibility, and retry policy | applying requires approval |
+| `ASSESS_SOURCE` | connection, bounded inventory/sample, file/source profile, initial score | none |
+| `GENERATE_CONFIGURATION` | disabled, versioned landing/Bronze/ingestion/parser/metadata/workflow proposal | proposal only |
+| `VALIDATE_CONFIGURATION` | allowlist, naming, checkpoint, manifest, parser, security checks | validation record only |
+| `SAMPLE_RUN` | approved idempotent ADF/Workflow dry or sample run plus metrics | approval required |
+| `ACTIVATE_CONFIGURATION` | activate one validated version per source/environment | approval plus disabled feature flag |
 
-## Repository layout
+Activation is disabled by default. No mode modifies, moves, or deletes source data or creates infrastructure.
 
-```text
-.
-├── README.md
-├── pyproject.toml
-├── app.yaml
-├── databricks.yml
-├── src/processing_quality_agent/
-│   ├── app.py
-│   ├── agent.py
-│   ├── models/
-│   ├── orchestration/
-│   ├── services/
-│   ├── skills/
-│   ├── tools/
-│   ├── prompts/
-│   └── sql/
-├── resources/
-├── notebooks/
-├── tests/
-└── docs/
-```
+## Connector model
 
-## Tool inventory
+`SourceConnector` exposes only `validate_connection`, bounded `list_objects`, `read_metadata`, bounded `read_sample`, and `estimate_inventory`. Implementations:
 
-Read tools cover document context, Bronze manifests, parser runs/history, Silver documents/elements, quality assessments, batch failures, parser metrics, and bounded source samples. State-changing tools cover recovery attempts, Workflow triggers, processing status, review submission, quarantine, quality records, and routing policies.
+- `MockConnector`: complete local fixture implementation.
+- `ADLSConnector`: `abfss://` parsing, account/filesystem allowlisting, `DefaultAzureCredential`, non-recursive bounded listing, and no writes. Production range-read wiring remains workspace-specific.
+- `SharePointConnector`: safe pluggable boundary for an approved Microsoft Graph or enterprise adapter; no invented authentication.
+- `SFTPConnector`: disabled by default; requires a host-key-pinned credential-provider adapter.
+- `APISourceConnector`: boundary for an allowlisted, timeout/payload-limited, schema-validating adapter.
 
-Every live write requires actor, approval reference, approved-by identity, reason, correlation ID, and idempotency key. The agent has no arbitrary SQL tool. See [Tool contracts](docs/tool_contracts.md) for input/output, parser protocols, Workflow behavior, source access, UC SQL, MCP mapping, and errors.
+See [connector contracts](docs/connector_contracts.md).
+
+## Tool and skill inventory
+
+Deterministic skills cover signature/MIME checks, extension and size rules, metadata completeness, sampling, source aggregation, readiness scoring, ingestion selection, landing/checkpoint validation, parser eligibility, metadata profiling, and configuration generation. Governed tools cover repositories, UC permissions/volumes, Bronze configuration, ADF, Databricks Workflows, sample results, MCP, and explicit tool registration. Arbitrary SQL, Python, and shell tools are forbidden.
+
+The LLM-facing prompt may recommend only. Pydantic validation and deterministic services decide whether a proposal or action is valid. Source content is treated as untrusted data, never instructions.
 
 ## Data contracts
 
-All public and internal contracts use Pydantic v2. Principal records are:
+All external and internal records use strict Pydantic v2 models (`extra="forbid"`). Primary contracts include `SourceDefinition`, `SourceObject`, `FileProfile`, `SourceProfile`, `LandingConfiguration`, `BronzeConfiguration`, `IngestionConfiguration`, `ParserRoutingProfile`, `MetadataProfile`, `ConfigurationProposal`, `SampleRun`, and `ReadinessAssessment`.
 
-- `BronzeManifest`: source identity, URI, type, hash, batch, state, and lineage timestamps;
-- `ParserRun`: parser/version/config, endpoint/prompt versions, status, latency, cost, warnings, and error;
-- `SilverDocument`: normalized text, page coverage, layout/table/figure payloads, confidence, and source references;
-- `SilverElement`: page element text, type, geometry, confidence, and source reference;
-- `QualityAssessment`: metric scores/evidence, hard failures, final score, decision, and explanation;
-- `RecoveryAttempt`: source/recovery runs, strategy/config, approval/actor, before/after quality, and outcome;
-- `ParserComparison`: ranked component and overall scores;
-- `HumanReviewRequest`: issue, severity, evidence, references, recommendation, ownership, and status.
+Metadata recommendations retain provenance: source-provided, deterministically derived, AI-inferred/requires-confirmation, or human-confirmed. Source-provided values are not overwritten. See [configuration contracts](docs/configuration_contracts.md).
 
-Physical table names are configurable through `TableMappings`; code uses logical contracts rather than assuming organization-specific object names.
+## Readiness scoring
 
-## Quality scoring
+Default weights are connectivity 15%; format, integrity, metadata, landing, Bronze, and parser 10% each; inventory, checkpoint, workflow, governance, and sample result 5% each. Weights are policy data and must total one.
 
-The final score combines deterministic evidence, normalized parser confidence, and an AI judge only when policy triggers it. Default weights are:
+Blocking conditions override the score: inaccessible/disallowed source, no supported files, invalid landing path, checkpoint collision, missing ownership/Bronze target, no parser, excessive sample failure, or least-privilege violation. Statuses are `READY`, `READY_WITH_WARNINGS`, `CONFIGURATION_REQUIRED`, `ACCESS_BLOCKED`, `UNSUPPORTED_SOURCE`, `SAMPLE_RUN_FAILED`, and `NOT_READY`. Every category includes evidence and remediation.
 
-| Metric | Weight |
-|---|---:|
-| schema validity | 0.15 |
-| page coverage | 0.15 |
-| text quality | 0.15 |
-| layout quality | 0.10 |
-| table quality | 0.10 |
-| metadata completeness | 0.10 |
-| source-reference completeness | 0.10 |
-| normalized parser confidence | 0.10 |
-| AI judge | 0.05 |
+Sample-run defaults require 100% accounting, 95% supported-file Bronze registration, 90% supported parsing, 98% manifest completeness, lineage references, recorded failure reasons, and explicit unsupported classification.
 
-When AI judgment is absent, its weight is redistributed by normalizing active weights. Hard failures override the numeric score. Unsupported or corrupt files cannot pass because of confidence or an LLM judgment. Decisions are `PASS`, `PASS_WITH_WARNINGS`, `RETRY_SAME_PARSER`, `RETRY_ALTERNATE_PARSER`, `HUMAN_REVIEW`, `QUARANTINE`, and `REJECT_UNSUPPORTED`.
+## Approval, activation, and versioning
 
-The AI judge is intended only for threshold proximity, confidence conflict, parser disagreement, complex layout, ambiguous tables, missing semantic content, high-risk classes, or explicit investigation. Its structured result is advisory and cannot call recovery.
+Every action requires `approved=true`, `approval_reference`, `approved_by`, actor, reason, correlation ID, and deterministic idempotency key. A sample run also requires a deterministically validated proposal. Activation additionally requires a successful matching sample run and `ACTIVATION_ENABLED=true`.
 
-## Approval and recovery model
-
-The agent is read-only by default. A live recovery without valid approval returns `AWAITING_APPROVAL` and no workflow run ID. Approval structure requires `approved=true`, approval reference, and approver identity; production must additionally verify the reference against the enterprise approval authority.
-
-Default retry controls are one automatic retry per parser, three total attempts, no repeated identical parser/configuration after the policy limit, and human review after exhaustion. Recovery uses a deterministic idempotency key and always produces a new run/version plus an immutable attempt record.
+Proposals are immutable versions. Changes create a new version with parent/change metadata. Only one version can be active per source/environment; prior versions stay auditable. Rollback means approved activation of a prior version, never mutation in place.
 
 ## Local setup
 
-Run from the repository root:
+Python 3.11 is required.
 
 ```bash
 python3.11 -m venv .venv
@@ -126,175 +102,166 @@ cp .env.example .env
 make run
 ```
 
-Local defaults are `APP_ENV=local`, `USE_MOCK_TOOLS=true`, and dry-run enabled. Synthetic fixtures contain no real PII or PHI.
+Local defaults are `APP_ENV=local`, `USE_MOCK_TOOLS=true`, and `ACTIVATION_ENABLED=false`. Check `GET /health` and `GET /ready`.
 
-Health endpoints:
+## Example assessment
 
 ```bash
-curl -s localhost:8000/health
-curl -s localhost:8000/ready
+curl -s localhost:8000/api/v1/assess-source -H 'content-type: application/json' -d '{
+  "source": {
+    "source_id": "SRC-POLICY-01",
+    "source_name": "Policy Documents",
+    "source_type": "MOCK",
+    "source_system": "fixture",
+    "connection_reference": "mock",
+    "source_location": "mock://",
+    "business_owner": "Policy Operations",
+    "technical_owner": "Data Engineering",
+    "expected_modalities": ["DOCUMENT", "IMAGE"],
+    "expected_file_types": ["pdf", "docx", "png"],
+    "ingestion_frequency": "DAILY"
+  },
+  "sample_policy": {"strategy": "HYBRID", "maximum_files": 25, "maximum_total_bytes": 524288000},
+  "dry_run": true,
+  "actor": "engineer@example.com"
+}'
 ```
 
-## API examples
+Representative response (IDs and exact scores vary):
 
-### Investigate
+```json
+{
+  "correlation_id": "CORR-...",
+  "operation_mode": "ASSESS_SOURCE",
+  "readiness_assessment": {
+    "readiness_score": 73.5,
+    "readiness_status": "CONFIGURATION_REQUIRED",
+    "category_scores": {"connectivity_and_permissions": 100.0},
+    "blocking_issues": [],
+    "recommended_actions": ["Generate and validate a source configuration proposal"]
+  },
+  "approval_required": false
+}
+```
+
+## Configuration proposal and validation
 
 ```bash
-curl -s localhost:8000/api/v1/investigate \
-  -H 'content-type: application/json' \
-  -d '{
-    "document_id":"DOC-102",
-    "question":"Why did table extraction fail?",
-    "include_source_sample":false,
-    "dry_run":true,
-    "actor":"engineer@example.com"
-  }'
+curl -s localhost:8000/api/v1/generate-configuration -H 'content-type: application/json' -d '{
+  "assessment_id": "ASSESS-...",
+  "target_environment": "dev",
+  "desired_ingestion_schedule": "0 0 * * *",
+  "allowed_parsers": ["databricks_primary", "azure_document_intelligence", "native_text_reader"],
+  "actor": "engineer@example.com"
+}'
+
+curl -s localhost:8000/api/v1/validate-configuration -H 'content-type: application/json' -d '{
+  "proposal_id": "PROP-...",
+  "actor": "engineer@example.com"
+}'
+```
+
+A proposal includes disabled ingestion configuration, append-only landing paths, distinct checkpoint/schema/quarantine paths, Bronze UC Volume and manifest mappings, SHA-256 registration, retry/DLQ rules, parser primary/fallbacks, metadata provenance, safe workflow parameters, version, actor, and audit timestamps.
+
+## Controlled sample run
+
+```bash
+curl -s localhost:8000/api/v1/sample-run -H 'content-type: application/json' -d '{
+  "proposal_id": "PROP-...",
+  "sample_size": 25,
+  "approval": {"approved": true, "approval_reference": "CHG-10001", "approved_by": "engineer@example.com", "reason": "onboarding validation"},
+  "dry_run": true,
+  "actor": "engineer@example.com"
+}'
 ```
 
 Representative result:
 
 ```json
 {
-  "operation_mode": "INVESTIGATE",
-  "diagnosis": {
-    "primary_failure": "TABLE_EXTRACTION_FAILURE",
-    "retryable": true,
-    "eligible_strategies": [
-      "TABLE_FOCUSED_REPROCESS",
-      "RETRY_WITH_ALTERNATE_PARSER"
-    ]
+  "operation_mode": "SAMPLE_RUN",
+  "sample_run": {
+    "status": "SUCCEEDED",
+    "bronze_registered_count": 4,
+    "parsed_count": 3,
+    "unsupported_count": 1,
+    "quality_summary": {"accounting_percent": 100.0, "registration_percent": 100.0, "supported_parse_percent": 100.0, "sample_run_score": 100.0}
   },
-  "final_decision": "PASS_WITH_WARNINGS",
-  "recommended_action": "TABLE_FOCUSED_REPROCESS"
+  "approval_required": true
 }
 ```
-
-### Approved recovery
-
-```bash
-curl -s localhost:8000/api/v1/recover \
-  -H 'content-type: application/json' \
-  -d '{
-    "document_id":"DOC-102",
-    "source_run_id":"RUN-101",
-    "strategy":"RETRY_WITH_ALTERNATE_PARSER",
-    "preferred_parser_id":"azure_document_intelligence",
-    "approval":{
-      "approved":true,
-      "approval_reference":"CHG-12345",
-      "approved_by":"approver@example.com"
-    },
-    "reason":"Recover missing policy tables",
-    "actor":"engineer@example.com",
-    "dry_run":false
-  }'
-```
-
-The response includes source/recovery run IDs, plan, assessment, before/after score, outcome, tool audit, state history, and correlation ID.
-
-### Parser comparison
-
-```bash
-curl -s localhost:8000/api/v1/compare-parsers \
-  -H 'content-type: application/json' \
-  -d '{
-    "document_id":"DOC-102",
-    "parser_candidates":["databricks_primary","azure_document_intelligence"],
-    "quality_weight_profile":"BALANCED",
-    "dry_run":true
-  }'
-```
-
-The result is `RECOMMENDATION_ONLY`; it never updates production routing automatically.
 
 ## ResponsesAgent invocation
 
-`POST /invocations` accepts a Responses-compatible `input` and typed operation fields in `custom_inputs`:
+`POST /invocations` accepts a simple structured envelope or a Responses-compatible message whose text is JSON:
 
 ```json
 {
-  "input": "Explain the quality-gate failure.",
-  "custom_inputs": {
-    "mode": "INVESTIGATE",
-    "document_id": "DOC-102",
-    "dry_run": true,
-    "actor": "engineer@example.com"
-  }
+  "input": [{
+    "role": "user",
+    "content": [{"type": "input_text", "text": "{\"operation_mode\":\"ASSESS_SOURCE\",\"payload\":{...}}"}]
+  }]
 }
 ```
 
-The response contains a standard assistant message and structured `custom_outputs` with the complete `AgentOperationResponse`.
+The output uses a Responses-style completed response and includes `source_readiness_result`. Natural-language chat is intentionally rejected.
 
 ## Databricks deployment
 
 ```bash
 databricks bundle validate -t dev
 databricks bundle deploy -t dev
+databricks bundle run source_readiness -t dev
 ```
 
-The bundle defines dev, test, and production targets and app resource placeholders. Production must bind a governed repository, service principal, catalog/schema, parser job IDs, policy files, MLflow experiment, and permissions. See [Deployment](docs/deployment.md) for prerequisites, all environment variables, UC objects, grants, Workflow binding, Azure setup, readiness, rollback, and the fail-closed production integration point.
+The bundle contains dev/test/prod targets, App source, catalog permission, Workflow binding, model and MLflow variables. Before deployment provide governed catalog/schemas, UC Volume, operational Delta tables, App service principal/managed identity, least-privilege grants, Workflow job, model endpoint if AI enrichment is enabled, secret scopes/resource bindings, and MLflow experiment. See [deployment](docs/deployment.md).
 
-## Azure Document Intelligence
+## Azure integrations
 
-The adapter uses `DocumentIntelligenceClient.begin_analyze_document` with configurable model ID such as `prebuilt-layout`. It prefers `DefaultAzureCredential`. API-key auth requires an explicit allow flag and secret injection; keys are never included in `.env.example` or logs. Results normalize pages, lines, tables/cells, geometry, references, latency, warnings, and structured failures.
+ADLS uses `DefaultAzureCredential` and requires an approved storage account reference/container plus read/list RBAC and ACLs. Landing uses a separate write identity and append-only policy. ADF requires configured subscription/resource-group/factory references, approved pipeline names, and an identity allowed to validate/read/trigger/cancel runs. The agent never deploys pipelines or linked services. Auto Loader is never started inside the App; it emits validated notebook/job parameters.
 
-## MCP configuration
+## Unity Catalog, MCP, and MLflow
 
-The `MCPClient` protocol supports discovery and invocation without making MCP a local-test dependency. Production should connect managed Databricks MCP endpoints, allowlist discovered tool names, validate local schemas, propagate audit context, and preserve read/write classifications. Azure parsing may remain a local application tool or be exposed through a separately governed custom MCP server.
+Production adapters should use Databricks SDK, managed MCP endpoints, or reviewed UC functions. App permissions should separate proposal creation from activation and grant only required catalog/schema/table/volume operations. MCP tools must label writes/actions, require approval context, and never embed bearer tokens. Reusable tools can expose profiling, landing validation, metadata generation, parser eligibility, readiness assessment, and proposal generation.
 
-## Unity Catalog permissions
-
-Use a dedicated app identity with `USE CATALOG`, `USE SCHEMA`, selected `SELECT`, specific `READ VOLUME`, `EXECUTE` on owned functions, narrow operations writes, parser job run permission, and MLflow experiment access. Do not grant unrestricted SQL, catalog ownership, broad Volume access, or Workflow editing.
-
-## Workflow configuration
-
-Map each parser ID to an approved Databricks job ID through `DATABRICKS_WORKFLOW_JOB_IDS`. Jobs receive document/source identifiers, parser/configuration, source run, recovery ID, and idempotency key. Polling is bounded with exponential backoff. A run must write a new Silver version rather than overwrite prior output.
-
-## MLflow tracing and logging
-
-Operation spans are created when MLflow is available and safely become local no-ops otherwise. Metadata is limited to identifiers, actor, environment, and operation mode. Responses record state and invoked-tool audit. Structured JSON logging redacts common secret fields. Production must configure trace retention, access control, sampling, and sensitive-content redaction.
+`trace_span` adds non-sensitive identifiers/status as MLflow attributes and excludes tokens, credentials, keys, and full file content. Structured logs apply defense-in-depth redaction. Production should configure an experiment and wrap connector/service/action calls with spans.
 
 ## Testing
 
 ```bash
-ruff check .
-mypy src
-pytest
-# or all checks:
+make test
+make lint
+make typecheck
 make check
 ```
 
-The suite includes unit, integration, contract, and security coverage for scoring, hard failures, confidence normalization, AI-judge triggers, failure classification, retry exhaustion, parser ranking, approval, idempotency, state transitions, API/Responses contracts, Azure normalization, path traversal, arbitrary SQL rejection, secret redaction, and approved/unapproved recovery.
+The suite covers deterministic profiles, MIME mismatch, bounded sampling, blockers, strategy choice, paths, checkpoint uniqueness, parser eligibility, metadata provenance, approval, idempotency, state transitions, security controls, API contracts, and a complete local assessment-to-sample flow.
 
-Databricks-compatible source notebooks provide table setup, UC-function registration guidance, smoke tests, parser benchmarking, and an MLflow evaluation seed dataset.
+## Environment variables
 
-## Known limitations
+See `.env.example`. Required production values depend on enabled adapters: `APP_ENV`, `USE_MOCK_TOOLS`, `ACTIVATION_ENABLED`, source allowlists, Databricks host/catalog/configuration/Bronze/operations schemas, UC bindings, Workflow job ID, model endpoint, MLflow experiment, ADLS account/container references, ADF subscription/resource-group/factory references, approved pipelines, timeouts, and sampling bounds. Credentials must come from Databricks resource bindings, secrets, managed identity, or `DefaultAzureCredential`, never environment examples or request bodies.
 
-- Production Delta/UC or managed-MCP repository is not implemented generically; startup fails closed when mock tools are disabled.
-- Batch/run-only selector resolution requires a production repository resolver.
-- Live AI-judge endpoint invocation is an extension point.
-- Mock recovery materializes a synthetic immutable output version; production verification must poll governed Silver tables for the workflow's resulting run ID.
-- Operation state and review queue are in memory.
-- External approval verification and human-review UI are not connected.
-- Provider pricing and production concurrency controls require workspace calibration.
+## Known limitations and workspace TODOs
 
-## Production-hardening checklist
+- Bind the SharePoint Graph, SFTP, enterprise API, ADLS range-read, UC repository, permission, and Volume adapters to organization-approved implementations.
+- Replace in-memory local persistence with operational Delta tables and reviewed UC functions.
+- Bind and test ADF SDK calls and live Databricks Workflow status/cancellation/polling.
+- Add the workspace approval-authority verifier; structural approval validation alone is not sufficient for production.
+- Add content-aware complexity/scanned classification only through an approved endpoint with structured Pydantic output.
+- Configure rate limiting, distributed idempotency/locking, telemetry retention, deletion of sample artifacts per policy, and external audit export.
+- Verify `databricks.yml` resource syntax against the installed CLI/Apps release and organization policy.
 
-- Implement the governed repository and immutable audit store.
-- Derive actor identity from authenticated ingress.
-- Verify approvals against the enterprise authority.
-- Persist idempotency and resumable operation state.
-- Add row/column security and private networking.
-- Calibrate policies with representative, labeled documents.
-- Add provider concurrency, cost, and load controls.
-- Configure alerting, retention, backup, rollback, and disaster recovery.
-- Pin/scan dependencies and complete a threat model.
-- Test denied operations, parser outages, workflow cancellation, and sensitive trace handling.
+## Security limitations and production-hardening checklist
 
-## Operational documentation
+- [ ] Replace all mock/in-memory adapters and run connector contract tests against non-production resources.
+- [ ] Enforce canonical URI allowlists after DNS/redirect resolution for API and SharePoint adapters.
+- [ ] Verify managed identities, ACLs, UC grants, schema isolation, and proposal/activation separation.
+- [ ] Integrate a trusted change/approval authority and short-lived signed approval context.
+- [ ] Use distributed idempotency and uniqueness constraints in Delta for concurrent App replicas.
+- [ ] Add API authentication/authorization, request limits, rate limits, egress controls, and private networking.
+- [ ] Red-team prompt injection, archive bombs, malformed documents, parser endpoints, logs, and traces.
+- [ ] Define sample-artifact retention/removal, DLQ ownership, lineage SLAs, rollback, and incident runbooks.
+- [ ] Pin a lock file/SBOM, scan dependencies and images, sign artifacts, and enforce CI coverage/security gates.
+- [ ] Validate live Asset Bundle and Databricks App deployment in dev, test, and prod.
 
-- [Architecture](docs/architecture.md)
-- [Tool contracts](docs/tool_contracts.md)
-- [Deployment](docs/deployment.md)
-- [Security](docs/security.md)
-- [Operations runbook](docs/runbook.md)
+Additional design and operational detail is in [architecture](docs/architecture.md), [security](docs/security.md), and the [runbook](docs/runbook.md).

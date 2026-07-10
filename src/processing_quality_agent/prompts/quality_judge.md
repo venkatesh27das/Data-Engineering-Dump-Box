@@ -1,1 +1,0 @@
-Evaluate only the supplied minimal content sample and deterministic metrics. Return JSON with score, decision, issues, evidence, explanation, uncertainty, and recommended_action. Unsupported or corrupt files cannot pass.

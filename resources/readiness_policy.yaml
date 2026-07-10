@@ -1,0 +1,21 @@
+version: 1
+weights:
+  connectivity_and_permissions: 0.15
+  file_format_compatibility: 0.10
+  file_integrity: 0.10
+  metadata_completeness: 0.10
+  inventory_quality: 0.05
+  landing_path_readiness: 0.10
+  checkpoint_readiness: 0.05
+  bronze_registration_readiness: 0.10
+  parser_eligibility: 0.10
+  workflow_readiness: 0.05
+  governance_readiness: 0.05
+  sample_run_result: 0.05
+thresholds:
+  ready: 90
+  ready_with_warnings: 75
+  sample_accounting_percent: 100
+  sample_registration_percent: 95
+  sample_parse_percent: 90
+  manifest_completeness_percent: 98

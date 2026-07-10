@@ -1,15 +1,12 @@
--- Illustrative governed Unity Catalog SQL functions. Replace logical tables through deployment variables.
-CREATE OR REPLACE FUNCTION ${catalog}.${operations_schema}.get_document_processing_context(p_document_id STRING)
-RETURNS TABLE(document_id STRING, current_run_id STRING, processing_status STRING)
-RETURN SELECT document_id, current_run_id, processing_status
-FROM ${catalog}.${bronze_schema}.bronze_file_manifest
-WHERE document_id = p_document_id;
+-- Illustrative governed functions. Replace identifiers at deployment; do not expose arbitrary SQL.
+CREATE OR REPLACE FUNCTION ${catalog}.${schema}.get_source_configuration(p_source_id STRING)
+RETURNS TABLE(source_id STRING, version INT, configuration_json STRING)
+RETURN SELECT source_id, version, configuration_json
+FROM ${catalog}.${schema}.source_configuration
+WHERE source_id = p_source_id;
 
-CREATE OR REPLACE FUNCTION ${catalog}.${operations_schema}.get_parser_history(p_document_id STRING)
-RETURNS TABLE(run_id STRING, parser_id STRING, parser_version STRING, status STRING, latency_ms BIGINT)
-RETURN SELECT run_id, parser_id, parser_version, status, latency_ms
-FROM ${catalog}.${operations_schema}.parser_run
-WHERE document_id = p_document_id;
-
--- Writes should be procedures/functions owned by a service principal and validate actor,
--- approval_reference, reason, correlation_id, and idempotency_key before MERGE/INSERT.
+CREATE OR REPLACE FUNCTION ${catalog}.${schema}.get_configuration_history(p_source_id STRING)
+RETURNS TABLE(source_id STRING, version INT, active BOOLEAN, created_at TIMESTAMP)
+RETURN SELECT source_id, version, active, created_at
+FROM ${catalog}.${schema}.configuration_version
+WHERE source_id = p_source_id;

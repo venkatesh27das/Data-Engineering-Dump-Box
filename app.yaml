@@ -1,10 +1,18 @@
-command: ["uvicorn", "processing_quality_agent.app:app", "--host", "0.0.0.0", "--port", "8000"]
+command:
+  - uvicorn
+  - source_readiness_agent.app:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
 env:
   - name: APP_ENV
-    value: production
+    value: dev
   - name: USE_MOCK_TOOLS
     value: "false"
+  - name: ACTIVATION_ENABLED
+    value: "false"
   - name: DATABRICKS_CATALOG
-    valueFrom: catalog
-  - name: DATABRICKS_OPERATIONS_SCHEMA
-    valueFrom: operations_schema
+    valueFrom: source-readiness-catalog
+  - name: DATABRICKS_WORKFLOW_JOB_ID
+    valueFrom: source-readiness-workflow

@@ -1,41 +1,57 @@
 bundle:
-  name: processing-quality-agent
+  name: source-readiness-agent
 
-include:
-  - resources/*.yml
+include: []
 
 variables:
-  catalog: {default: main}
-  bronze_schema: {default: bronze}
-  silver_schema: {default: silver}
-  operations_schema: {default: operations}
-  model_endpoint: {default: processing-quality-model}
-  primary_parser_job_id: {default: 0}
+  catalog:
+    description: Governed Unity Catalog catalog
+  configuration_schema:
+    default: source_configuration
+  bronze_schema:
+    default: bronze
+  operations_schema:
+    default: source_operations
+  model_endpoint:
+    default: configured-model-endpoint
+  mlflow_experiment:
+    default: /Shared/source-readiness-agent
+  workflow_job_id:
+    default: "0"
 
 resources:
   apps:
-    processing_quality_agent:
-      name: processing-quality-agent-${bundle.target}
+    source_readiness:
+      name: source-readiness-agent-${bundle.target}
+      description: Source Readiness and Pipeline Configuration Agent
       source_code_path: .
-      description: Governed Bronze-to-Silver processing quality and recovery agent
       resources:
-        - name: catalog
-          description: Governed data catalog
-          catalog:
-            name: ${var.catalog}
+        - name: source-readiness-catalog
+          description: Catalog binding
+          uc_securable:
+            securable_type: CATALOG
+            securable_full_name: ${var.catalog}
             permission: USE_CATALOG
-        - name: operations_schema
-          description: Auditable operational records
-          schema:
-            schema_name: ${var.catalog}.${var.operations_schema}
-            permission: USE_SCHEMA
+        - name: source-readiness-workflow
+          description: Controlled sample workflow
+          job:
+            id: ${var.workflow_job_id}
+            permission: CAN_MANAGE_RUN
 
 targets:
   dev:
-    mode: development
     default: true
+    mode: development
+    workspace:
+      host: ${env.DATABRICKS_HOST}
   test:
     mode: development
+    workspace:
+      host: ${env.DATABRICKS_HOST}
   prod:
     mode: production
-    # Add workspace root_path, run_as service principal, and least-privilege permissions here.
+    workspace:
+      host: ${env.DATABRICKS_HOST}
+    permissions:
+      - level: CAN_VIEW
+        group_name: users

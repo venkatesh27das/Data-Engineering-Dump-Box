@@ -1,0 +1,7 @@
+version: 1
+partition_pattern: /landing/{source_system}/{application}/{use_case}/{ingestion_date}/{batch_id}/
+required_segments: [source_system, application, use_case, ingestion_date, batch_id]
+append_only: true
+checkpoint_prefix: /checkpoints/{environment}/{source_id}/
+schema_prefix: /schemas/{environment}/{source_id}/
+quarantine_prefix: /quarantine/{environment}/{source_id}/
