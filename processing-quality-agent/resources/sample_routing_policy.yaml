@@ -1,0 +1,14 @@
+document_class: scanned_policy_pdf
+primary_parser: databricks_primary
+fallback_parser: azure_document_intelligence
+eligibility:
+  mime_types: [application/pdf]
+  scanned_probability_min: 0.60
+quality_thresholds:
+  publish: 0.85
+  human_review: 0.65
+retry:
+  max_same_parser: 1
+  max_total_attempts: 3
+approval:
+  required: true

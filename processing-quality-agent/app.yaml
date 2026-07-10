@@ -1,0 +1,10 @@
+command: ["uvicorn", "processing_quality_agent.app:app", "--host", "0.0.0.0", "--port", "8000"]
+env:
+  - name: APP_ENV
+    value: production
+  - name: USE_MOCK_TOOLS
+    value: "false"
+  - name: DATABRICKS_CATALOG
+    valueFrom: catalog
+  - name: DATABRICKS_OPERATIONS_SCHEMA
+    valueFrom: operations_schema

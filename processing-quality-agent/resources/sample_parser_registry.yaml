@@ -1,0 +1,11 @@
+parsers:
+  databricks_primary:
+    enabled: true
+    invocation: workflow
+    job_id_env: PRIMARY_PARSER_JOB_ID
+  azure_document_intelligence:
+    enabled: false
+    model_id: prebuilt-layout
+    authentication: managed_identity
+  custom_parser:
+    enabled: false

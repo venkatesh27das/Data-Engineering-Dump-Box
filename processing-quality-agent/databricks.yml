@@ -1,0 +1,41 @@
+bundle:
+  name: processing-quality-agent
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog: {default: main}
+  bronze_schema: {default: bronze}
+  silver_schema: {default: silver}
+  operations_schema: {default: operations}
+  model_endpoint: {default: processing-quality-model}
+  primary_parser_job_id: {default: 0}
+
+resources:
+  apps:
+    processing_quality_agent:
+      name: processing-quality-agent-${bundle.target}
+      source_code_path: .
+      description: Governed Bronze-to-Silver processing quality and recovery agent
+      resources:
+        - name: catalog
+          description: Governed data catalog
+          catalog:
+            name: ${var.catalog}
+            permission: USE_CATALOG
+        - name: operations_schema
+          description: Auditable operational records
+          schema:
+            schema_name: ${var.catalog}.${var.operations_schema}
+            permission: USE_SCHEMA
+
+targets:
+  dev:
+    mode: development
+    default: true
+  test:
+    mode: development
+  prod:
+    mode: production
+    # Add workspace root_path, run_as service principal, and least-privilege permissions here.
