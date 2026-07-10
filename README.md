@@ -41,7 +41,7 @@ Quality uses configurable deterministic metrics plus normalized parser confidenc
 ## Local setup
 
 ```bash
-cd processing-quality-agent
+# Run from the repository root.
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
