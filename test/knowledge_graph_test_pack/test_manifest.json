@@ -1,0 +1,18 @@
+{
+  "pack_name": "procurement_hybrid_poc_v1",
+  "knowledge_objective": "Understand suppliers, contracts, products and contractual obligations.",
+  "structured_files": [
+    "supplier_schema.sql",
+    "schema_metadata.csv",
+    "schema_context.json",
+    "supplier_sample.csv"
+  ],
+  "unstructured_files": [
+    "contract_1032.pdf",
+    "product_catalog.docx",
+    "purchase_order_77821.png"
+  ],
+  "recommended_mode": "Hybrid",
+  "recommended_graph_depth": "Contextual Knowledge",
+  "review_low_confidence": true
+}

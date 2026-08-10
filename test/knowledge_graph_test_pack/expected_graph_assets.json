@@ -1,0 +1,122 @@
+{
+  "test_objective": "Understand suppliers, contracts, products and contractual obligations.",
+  "expected_canonical_entities": [
+    {
+      "canonical_name": "ACME Corporation",
+      "type": "Supplier",
+      "expected_aliases": [
+        "ACME Corp",
+        "ACME Co.",
+        "ACME"
+      ],
+      "expected_identifier": "SUP-001",
+      "minimum_sources": 4
+    },
+    {
+      "canonical_name": "Global Industries",
+      "type": "Supplier",
+      "expected_aliases": [
+        "Global Ind."
+      ],
+      "expected_identifier": "SUP-002"
+    },
+    {
+      "canonical_name": "Product X",
+      "type": "Product",
+      "expected_identifier": "PRD-X"
+    },
+    {
+      "canonical_name": "Product Z",
+      "type": "Product",
+      "expected_identifier": "PRD-Z"
+    },
+    {
+      "canonical_name": "Master Supply Agreement",
+      "type": "Contract",
+      "expected_identifier": "CTR-1032"
+    },
+    {
+      "canonical_name": "PO-77821",
+      "type": "PurchaseOrder"
+    }
+  ],
+  "expected_relationships": [
+    [
+      "ACME Corporation",
+      "SUPPLIES",
+      "Product X"
+    ],
+    [
+      "ACME Corporation",
+      "SUPPLIES",
+      "Product Z"
+    ],
+    [
+      "ACME Corporation",
+      "HAS_CONTRACT",
+      "Master Supply Agreement"
+    ],
+    [
+      "Master Supply Agreement",
+      "COVERS",
+      "Product X"
+    ],
+    [
+      "Master Supply Agreement",
+      "COVERS",
+      "Product Z"
+    ],
+    [
+      "PO-77821",
+      "ORDERED_FROM",
+      "ACME Corporation"
+    ],
+    [
+      "PO-77821",
+      "ORDERS",
+      "Product X"
+    ],
+    [
+      "PO-77821",
+      "GOVERNED_BY",
+      "Master Supply Agreement"
+    ]
+  ],
+  "expected_contextual_facts": [
+    {
+      "subject": "Product X",
+      "predicate": "reference_unit_price",
+      "object": "USD 125.00"
+    },
+    {
+      "subject": "Product X",
+      "predicate": "minimum_order_quantity",
+      "object": "50 units"
+    },
+    {
+      "subject": "Master Supply Agreement",
+      "predicate": "delivery_requirement",
+      "object": "15 business days"
+    },
+    {
+      "subject": "Master Supply Agreement",
+      "predicate": "payment_terms",
+      "object": "Net 30"
+    },
+    {
+      "subject": "ACME Corporation",
+      "predicate": "reporting_obligation",
+      "object": "quarterly service performance report"
+    }
+  ],
+  "expected_quality_behaviors": [
+    "Resolve ACME Corp, ACME Co., ACME and ACME Corporation into one supplier entity.",
+    "Preserve evidence references from schema, PDF, DOCX and image sources.",
+    "Use OCR or image text extraction for purchase_order_77821.png.",
+    "Do not create four separate supplier nodes for ACME aliases.",
+    "Do not execute supplier_schema.sql; parse it as schema text only.",
+    "Relationships derived from explicit foreign keys should have strong confidence.",
+    "Facts extracted from documents should retain document-level evidence.",
+    "Graph publication should be idempotent for canonical asset IDs."
+  ]
+}

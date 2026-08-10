@@ -1,0 +1,12 @@
+lmstudio:
+  base_url: "${LMSTUDIO_BASE_URL}"
+
+models:
+  orchestrator:
+    name: "${LMSTUDIO_ORCHESTRATOR_MODEL}"
+    temperature: 0.2
+  knowledge:
+    name: "${LMSTUDIO_KNOWLEDGE_MODEL}"
+    temperature: 0.1
+  embedding:
+    name: "${LMSTUDIO_EMBEDDING_MODEL}"

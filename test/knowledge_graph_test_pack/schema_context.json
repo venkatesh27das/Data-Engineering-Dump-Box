@@ -1,0 +1,67 @@
+{
+  "domain": "Procurement",
+  "source_system": "ProcureHub",
+  "tables": [
+    {
+      "name": "suppliers",
+      "description": "Master list of approved suppliers",
+      "primary_key": [
+        "supplier_id"
+      ],
+      "sample_semantics": {
+        "SUP-001": {
+          "supplier_name": "ACME Corp",
+          "supplier_alias": "ACME Co.",
+          "supplier_tier": "Strategic"
+        }
+      }
+    },
+    {
+      "name": "products",
+      "description": "Enterprise product catalog",
+      "primary_key": [
+        "product_id"
+      ],
+      "foreign_keys": [
+        {
+          "column": "preferred_supplier_id",
+          "references": "suppliers.supplier_id"
+        }
+      ],
+      "sample_semantics": {
+        "PRD-X": {
+          "product_name": "Product X",
+          "product_category": "Industrial Sensor",
+          "preferred_supplier_id": "SUP-001"
+        },
+        "PRD-Z": {
+          "product_name": "Product Z",
+          "product_category": "Edge Gateway",
+          "preferred_supplier_id": "SUP-001"
+        }
+      }
+    },
+    {
+      "name": "contracts",
+      "description": "Supplier master agreements",
+      "primary_key": [
+        "contract_id"
+      ],
+      "foreign_keys": [
+        {
+          "column": "supplier_id",
+          "references": "suppliers.supplier_id"
+        }
+      ],
+      "sample_semantics": {
+        "CTR-1032": {
+          "contract_name": "Master Supply Agreement",
+          "supplier_id": "SUP-001",
+          "effective_date": "2026-01-01",
+          "expiry_date": "2027-12-31",
+          "currency": "USD"
+        }
+      }
+    }
+  ]
+}
