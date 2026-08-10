@@ -1,4 +1,0 @@
-version: 1
-mandatory_source_fields: [source_system, source_location, source_owner, ingestion_method, batch_id, ingested_at]
-mandatory_document_fields: [file_name, mime_type, size_bytes, sha256, source_path, last_modified_at]
-completeness_threshold: 0.90

@@ -1,8 +1,0 @@
-version: 1
-supported_source_types: [ADLS, SHAREPOINT, API, MOCK]
-sftp_enabled: false
-read_only_default: true
-maximum_listing_objects: 1000
-maximum_listing_pages: 10
-operation_timeout_seconds: 120
-never_mutate_source: true
