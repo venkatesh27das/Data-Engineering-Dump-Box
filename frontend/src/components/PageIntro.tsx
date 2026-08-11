@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 interface PageIntroProps {
   title: string;
-  description: string;
+  description: ReactNode;
   action?: ReactNode;
 }
 export function PageIntro({ title, description, action }: PageIntroProps) {

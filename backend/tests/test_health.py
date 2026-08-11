@@ -43,7 +43,13 @@ def test_versioned_health_endpoint_reports_api_ready() -> None:
     response = client.get("/api/v1/health")
     app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert response.json() == {"api": "ok", "lmstudio": "connected", "neo4j": "not_configured"}
+    assert response.json() == {
+        "api": "ok",
+        "model_provider": "connected",
+        "model_provider_name": "LM Studio",
+        "lmstudio": "connected",
+        "neo4j": "not_configured",
+    }
 
 
 def test_health_alias_is_available() -> None:

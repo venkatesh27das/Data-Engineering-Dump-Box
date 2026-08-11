@@ -7,11 +7,28 @@ from app.providers.base import ModelProvider
 from app.tools.knowledge.common import KnowledgeToolError, extraction_messages, validate_evidence
 
 
-async def extract_relationships(provider: ModelProvider, sources: list[NormalizedSource], objective: str, entities: list[Entity]) -> list[Relationship]:
+async def extract_relationships(
+    provider: ModelProvider,
+    sources: list[NormalizedSource],
+    objective: str,
+    entities: list[Entity],
+    *,
+    max_tokens: int | None = None,
+) -> list[Relationship]:
     entity_context = json.dumps([entity.model_dump(mode="json") for entity in entities], ensure_ascii=False)
     response = await provider.structured_generate(
-        extraction_messages(task="Extract evidence-linked relationships using only the supplied entity IDs.", objective=objective, sources=sources, extra_context=entity_context),
+        extraction_messages(
+            task=(
+                "Extract evidence-linked relationships using only the supplied entity IDs. Connect parties to "
+                "agreements, suppliers to products or services, buyers to contracts, and agreements to covered "
+                "products or obligations when explicitly supported."
+            ),
+            objective=objective,
+            sources=sources,
+            extra_context=entity_context,
+        ),
         RelationshipExtractionResponse,
+        max_tokens=max_tokens,
     )
     entity_ids = {entity.id for entity in entities}
     invalid = [relationship.id for relationship in response.relationships if relationship.source_entity_id not in entity_ids or relationship.target_entity_id not in entity_ids]

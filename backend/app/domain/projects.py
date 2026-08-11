@@ -29,7 +29,7 @@ class ProjectCreate(BaseModel):
     processing_mode: ProcessingMode = ProcessingMode.AUTO
     graph_depth: GraphDepth = GraphDepth.ENTITY_RELATIONSHIPS
     review_low_confidence: bool = True
-    max_tokens: int = Field(default=4096, ge=512, le=131_072)
+    max_tokens: int = Field(default=2048, ge=512, le=131_072)
 
 
 class ProjectUpdate(BaseModel):

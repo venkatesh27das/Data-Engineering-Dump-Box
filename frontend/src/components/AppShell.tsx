@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Boxes, Hammer, Network, Settings } from "lucide-react";
+import { Boxes, Hammer, ListTodo, Network, Settings } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { getHealth } from "../services/health";
@@ -7,7 +7,8 @@ import { BrandMark } from "./BrandMark";
 import { StatusIndicator } from "./StatusIndicator";
 
 const navigation = [
-  { to: "/", label: "Build", description: "Upload & generate", icon: Hammer, end: true },
+  { to: "/", label: "Build", description: "Set up and launch runs", icon: Hammer, end: true },
+  { to: "/queue", label: "Run Queue", description: "Monitor background jobs", icon: ListTodo },
   { to: "/assets", label: "Graph Assets", description: "Review generated assets", icon: Boxes },
   { to: "/graph", label: "Graph Explorer", description: "Visualize in Neo4j", icon: Network },
 ];
@@ -33,8 +34,8 @@ export function AppShell() {
           <StatusIndicator
             isError={health.isError}
             isLoading={health.isLoading}
-            label="LM Studio"
-            status={health.data?.lmstudio}
+            label={health.data?.model_provider_name ?? "LM Studio"}
+            status={health.data?.model_provider ?? health.data?.lmstudio}
           />
           <StatusIndicator
             isError={health.isError}

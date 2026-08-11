@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,11 +11,20 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     frontend_origins: str = "http://localhost:5173"
 
+    ai_provider: Literal["lmstudio", "openai_compatible"] = "lmstudio"
     lmstudio_base_url: str = "http://localhost:1234/v1"
     lmstudio_orchestrator_model: str = ""
     lmstudio_knowledge_model: str = ""
     lmstudio_embedding_model: str = ""
     lmstudio_timeout_seconds: float = 120
+    lmstudio_connect_timeout_seconds: float = 10
+    openai_compatible_base_url: str = ""
+    openai_compatible_api_key: str = ""
+    openai_compatible_orchestrator_model: str = ""
+    openai_compatible_knowledge_model: str = ""
+    openai_compatible_embedding_model: str = ""
+    openai_compatible_timeout_seconds: float = 120
+    openai_compatible_connect_timeout_seconds: float = 10
     neo4j_uri: str = ""
     neo4j_username: str = ""
     neo4j_password: str = ""
@@ -40,6 +50,10 @@ class Settings(BaseSettings):
     @property
     def repository_root(self) -> Path:
         return Path(__file__).resolve().parents[2]
+
+    @property
+    def model_provider_name(self) -> str:
+        return "AI Gateway" if self.ai_provider == "openai_compatible" else "LM Studio"
 
     def resolve_path(self, value: str) -> Path:
         path = Path(value).expanduser()

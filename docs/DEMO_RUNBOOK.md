@@ -4,7 +4,7 @@ The canonical synthetic fixture pack is in `test/knowledge_graph_test_pack`. Its
 
 ## Build
 
-1. Confirm LM Studio and Neo4j Aura show `Connected` in the application header.
+1. Confirm the selected model provider and Neo4j show `Connected` in the application header.
 2. On **Build**, use the objective: `Understand suppliers, contracts, products and contractual obligations.`
 3. Upload these structured fixtures:
    - `supplier_schema.sql`
@@ -16,7 +16,7 @@ The canonical synthetic fixture pack is in `test/knowledge_graph_test_pack`. Its
    - `product_catalog.docx`
    - `purchase_order_77821.png`
 5. Select **Hybrid**, **Contextual Knowledge**, and enable low-confidence review.
-6. Click **Generate Graph Assets** and watch the plan, specialist tools, quality stage, and any re-plan event in Generation Progress.
+6. Click **Start Run**, then open **Run Queue** to watch the plan, specialist tools, quality stage, intermediate assets, lineage, and any re-plan event.
 
 ## Review and publish
 

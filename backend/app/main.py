@@ -6,6 +6,7 @@ from app.api.assets import router as assets_router
 from app.api.graph import router as graph_router
 from app.api.projects import router as projects_router
 from app.api.publication import router as publication_router
+from app.api.queue import router as queue_router
 from app.api.runs import router as runs_router
 from app.config import get_settings
 
@@ -29,6 +30,7 @@ app.include_router(health_router, prefix=settings.api_prefix)
 app.include_router(health_router)
 app.include_router(projects_router, prefix=settings.api_prefix)
 app.include_router(runs_router, prefix=settings.api_prefix)
+app.include_router(queue_router, prefix=settings.api_prefix)
 app.include_router(assets_router, prefix=settings.api_prefix)
 app.include_router(publication_router, prefix=settings.api_prefix)
 app.include_router(graph_router, prefix=settings.api_prefix)

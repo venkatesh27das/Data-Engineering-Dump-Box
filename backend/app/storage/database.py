@@ -87,6 +87,22 @@ class Database:
                     CREATE INDEX IF NOT EXISTS idx_agent_events_run
                     ON agent_events(run_id, sequence);
 
+                    CREATE TABLE IF NOT EXISTS run_artifacts (
+                        id TEXT PRIMARY KEY,
+                        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                        stage TEXT NOT NULL,
+                        artifact_type TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        record_count INTEGER NOT NULL DEFAULT 0,
+                        parent_ids_json TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_run_artifacts_run
+                    ON run_artifacts(run_id, created_at);
+
                     CREATE TABLE IF NOT EXISTS asset_packages (
                         package_id TEXT PRIMARY KEY,
                         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

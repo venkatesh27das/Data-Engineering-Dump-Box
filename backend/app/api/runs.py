@@ -32,7 +32,14 @@ async def start_run(
     repository = RunRepository(database)
     run = repository.create(project_id)
     repository.add_event(run.id, stage="queued", status="queued", title="Run queued", message="Knowledge Asset Supervisor will start shortly", event_type="run")
-    task_manager.start(RunOrchestrator(database=database, settings=settings, provider=provider).execute(run_id=run.id, project=project, sources=sources))
+    task_manager.start(
+        run.id,
+        lambda: RunOrchestrator(database=database, settings=settings, provider=provider).execute(
+            run_id=run.id,
+            project=project,
+            sources=sources,
+        ),
+    )
     return run
 
 
@@ -71,7 +78,7 @@ async def stream_run_events(project_id: str, run_id: str, database: Database = D
                 sequence = event.sequence
                 yield f"id: {event.sequence}\nevent: {event.event_type}\ndata: {event.model_dump_json()}\n\n"
             run = repository.get(project_id, run_id)
-            if run and run.status in {RunStatus.COMPLETED, RunStatus.FAILED} and not events:
+            if run and run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELED} and not events:
                 break
             await asyncio.sleep(0.25)
 

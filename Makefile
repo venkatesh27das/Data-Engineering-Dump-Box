@@ -1,4 +1,4 @@
-.PHONY: install api web test reset-demo
+.PHONY: install api web local test reset-demo
 
 install:
 	cd backend && uv sync --dev
@@ -9,6 +9,9 @@ api:
 
 web:
 	cd frontend && npm run dev
+
+local:
+	./scripts/run-local.sh
 
 test:
 	cd backend && uv run python -m pytest

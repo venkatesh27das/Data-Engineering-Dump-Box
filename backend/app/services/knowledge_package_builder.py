@@ -34,20 +34,33 @@ class KnowledgePackageBuilder:
         sources: list[SourceAsset],
         normalized_sources: list[NormalizedSource],
         objective: str,
+        max_tokens: int | None = None,
     ) -> KnowledgeAssetPackage:
         source_ids = {source.id for source in sources}
         normalized_ids = {source.source_id for source in normalized_sources}
         if source_ids != normalized_ids:
             raise ValueError("Uploaded and normalized source IDs do not match")
 
-        concepts = await discover_concepts(self.provider, normalized_sources, objective)
-        candidate_entities = await extract_entities(self.provider, normalized_sources, objective)
+        concepts = await discover_concepts(self.provider, normalized_sources, objective, max_tokens=max_tokens)
+        candidate_entities = await extract_entities(self.provider, normalized_sources, objective, max_tokens=max_tokens)
         resolution = resolve_entities(candidate_entities)
-        relationships = await extract_relationships(self.provider, normalized_sources, objective, resolution.entities)
+        relationships = await extract_relationships(
+            self.provider,
+            normalized_sources,
+            objective,
+            resolution.entities,
+            max_tokens=max_tokens,
+        )
         relationships = self._apply_redirects(relationships, resolution.redirects)
-        facts = await extract_facts(self.provider, normalized_sources, objective)
-        events = await extract_events(self.provider, normalized_sources, objective)
-        semantic_mappings = await map_semantics(self.provider, normalized_sources, objective, concepts)
+        facts = await extract_facts(self.provider, normalized_sources, objective, max_tokens=max_tokens)
+        events = await extract_events(self.provider, normalized_sources, objective, max_tokens=max_tokens)
+        semantic_mappings = await map_semantics(
+            self.provider,
+            normalized_sources,
+            objective,
+            concepts,
+            max_tokens=max_tokens,
+        )
         graph_schema = build_graph_schema(resolution.entities, relationships)
         quality_report = score_assets(
             entities=resolution.entities,
