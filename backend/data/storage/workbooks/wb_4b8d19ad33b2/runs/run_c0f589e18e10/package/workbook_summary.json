@@ -1,0 +1,15 @@
+{
+  "summary": "The workbook '02_multiple_sheets.xlsx' serves as an analytical model for customer and order management. It contains two visible sheets ('Customers' and 'Orders') and one hidden 'Reference' sheet. The 'Customers' sheet defines customer segments (Enterprise, SMB), while the 'Orders' sheet tracks transaction amounts and dynamically pulls customer names via VLOOKUP formulas referencing the 'Customers' sheet. A hidden 'Reference' sheet provides definitions for segment codes.",
+  "counts": {
+    "sheets": 3,
+    "tables": 3,
+    "formulas": 2,
+    "images": 0,
+    "charts": 0,
+    "comments": 0,
+    "semantic_units": 5,
+    "graph_nodes": 7,
+    "graph_edges": 6
+  },
+  "semantic_mode": "local_model"
+}

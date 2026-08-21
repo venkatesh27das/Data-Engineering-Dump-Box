@@ -1,1 +1,1 @@
-"""Knowledge Graph Builder API package."""
+"""Workbook Agent API package."""

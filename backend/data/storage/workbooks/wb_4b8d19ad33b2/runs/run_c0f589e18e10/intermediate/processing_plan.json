@@ -1,0 +1,27 @@
+{
+  "workbook_archetype": "analytical_model",
+  "steps": [
+    "profiling",
+    "planning",
+    "extracting",
+    "interpreting",
+    "validating",
+    "packaging"
+  ],
+  "excluded_steps": [
+    "macro_execution"
+  ],
+  "reasoning_summary": "The workbook contains three sheets: 'Customers', 'Orders', and 'Reference'. The 'Customers' and 'Orders' sheets contain structured tables with 2 rows of data each. The 'Orders' table uses VLOOKUP formulas to pull 'customer_name' from the 'Customers' sheet based on 'customer_id', establishing a direct relationship between the two entities. The 'Reference' sheet is hidden and contains a single row mapping codes to meanings, likely for categorization. No charts or images are present. The complexity is low, dominated by layout structure rather than computation.",
+  "agent_runtime": {
+    "framework": "langchain_deep_agents",
+    "reasoning_model": "qwen/qwen3.5-9b",
+    "vision_model": "google/gemma-4-12b",
+    "agents": {
+      "supervisor": "structured_adapter",
+      "semantic_agent": "structured_adapter",
+      "visual_agent": "not_needed",
+      "validation_agent": "structured_adapter"
+    }
+  },
+  "applied_directives": []
+}

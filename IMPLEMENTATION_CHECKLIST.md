@@ -1,0 +1,22 @@
+# Workbook Agent implementation checklist
+
+- [x] Read `CODEX.md` and inspect all supplied screenshots.
+- [x] Scaffold the React + TypeScript frontend and FastAPI backend.
+- [x] Build the shared navigation shell and screenshot-faithful main screens.
+- [x] Add typed API clients, upload, search, filters, selection, and file-drop behavior.
+- [x] Add SQLite persistence for workbooks, runs, events, assets, feedback, and review items.
+- [x] Add safe workbook intake, deterministic profiling, formula/image/chart extraction, and package writing.
+- [x] Add background run lifecycle and Server-Sent Events progress.
+- [x] Add feedback parsing, impacted-assets reprocessing, run comparison, acceptance, and package download.
+- [x] Add LM Studio discovery, automatic role selection, structured output, and graceful offline behavior.
+- [x] Add the Deep Agents runtime boundary with local structured-output recovery.
+- [x] Add planning, semantic, visual, validation, and feedback specialist agents.
+- [x] Generate and package real local embedding vectors with model/dimension metadata.
+- [x] Add multi-row headers, repeated blocks, label/value forms, and provenance-aware units.
+- [x] Add external-link, connection, query, pivot, conditional-formatting, and validation inspection.
+- [x] Add static VBA analysis without macro execution.
+- [x] Add rich chart metadata/agent interpretation and local vision OCR.
+- [x] Add `.xlsb` value, region, table, semantic-unit, and static macro extraction.
+- [x] Add backend and frontend tests plus synthetic workbook fixture generation.
+- [x] Add local/Docker setup documentation and developer commands.
+- [ ] Production hardening: Redis-backed distributed workers, Alembic revisions, PostgreSQL support, and observability.

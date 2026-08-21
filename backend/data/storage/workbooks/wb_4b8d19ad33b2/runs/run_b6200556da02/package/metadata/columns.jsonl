@@ -1,0 +1,9 @@
+{"column_id": "wb_4b8d19ad33b2.sheet_01.table_01.column_01", "table_id": "wb_4b8d19ad33b2.sheet_01.table_01", "original_name": "Customer ID", "normalized_name": "customer_id", "source_column": "A"}
+{"column_id": "wb_4b8d19ad33b2.sheet_01.table_01.column_02", "table_id": "wb_4b8d19ad33b2.sheet_01.table_01", "original_name": "Name", "normalized_name": "name", "source_column": "B"}
+{"column_id": "wb_4b8d19ad33b2.sheet_01.table_01.column_03", "table_id": "wb_4b8d19ad33b2.sheet_01.table_01", "original_name": "Segment", "normalized_name": "segment", "source_column": "C"}
+{"column_id": "wb_4b8d19ad33b2.sheet_02.table_01.column_01", "table_id": "wb_4b8d19ad33b2.sheet_02.table_01", "original_name": "Order ID", "normalized_name": "order_id", "source_column": "A"}
+{"column_id": "wb_4b8d19ad33b2.sheet_02.table_01.column_02", "table_id": "wb_4b8d19ad33b2.sheet_02.table_01", "original_name": "Customer ID", "normalized_name": "customer_id", "source_column": "B"}
+{"column_id": "wb_4b8d19ad33b2.sheet_02.table_01.column_03", "table_id": "wb_4b8d19ad33b2.sheet_02.table_01", "original_name": "Amount", "normalized_name": "amount", "source_column": "C"}
+{"column_id": "wb_4b8d19ad33b2.sheet_02.table_01.column_04", "table_id": "wb_4b8d19ad33b2.sheet_02.table_01", "original_name": "Customer Name", "normalized_name": "customer_name", "source_column": "D"}
+{"column_id": "wb_4b8d19ad33b2.sheet_03.table_01.column_01", "table_id": "wb_4b8d19ad33b2.sheet_03.table_01", "original_name": "Code", "normalized_name": "code", "source_column": "A"}
+{"column_id": "wb_4b8d19ad33b2.sheet_03.table_01.column_02", "table_id": "wb_4b8d19ad33b2.sheet_03.table_01", "original_name": "Meaning", "normalized_name": "meaning", "source_column": "B"}

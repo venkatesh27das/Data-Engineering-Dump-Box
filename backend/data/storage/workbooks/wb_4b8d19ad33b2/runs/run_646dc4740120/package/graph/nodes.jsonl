@@ -1,0 +1,7 @@
+{"node_id": "workbook.wb_4b8d19ad33b2", "node_type": "workbook", "label": "02_multiple_sheets.xlsx", "provenance": {"source_file": "02_multiple_sheets.xlsx"}}
+{"node_id": "wb_4b8d19ad33b2.sheet_01", "node_type": "sheet", "label": "Customers", "provenance": {"source_range": "A1:C3"}}
+{"node_id": "wb_4b8d19ad33b2.sheet_01.table_01", "node_type": "table", "label": "Customers Data", "provenance": {"source_sheet": "Customers", "source_range": "A1:C3"}}
+{"node_id": "wb_4b8d19ad33b2.sheet_02", "node_type": "sheet", "label": "Orders", "provenance": {"source_range": "A1:D3"}}
+{"node_id": "wb_4b8d19ad33b2.sheet_02.table_01", "node_type": "table", "label": "Orders Data", "provenance": {"source_sheet": "Orders", "source_range": "A1:D3"}}
+{"node_id": "wb_4b8d19ad33b2.sheet_03", "node_type": "sheet", "label": "Reference", "provenance": {"source_range": "A1:B2"}}
+{"node_id": "wb_4b8d19ad33b2.sheet_03.table_01", "node_type": "table", "label": "Reference Data", "provenance": {"source_sheet": "Reference", "source_range": "A1:B2"}}

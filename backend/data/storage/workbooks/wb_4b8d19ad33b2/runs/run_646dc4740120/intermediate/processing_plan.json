@@ -1,0 +1,27 @@
+{
+  "workbook_archetype": "analytical_model",
+  "steps": [
+    "profiling",
+    "planning",
+    "extracting",
+    "interpreting",
+    "validating",
+    "packaging"
+  ],
+  "excluded_steps": [
+    "macro_execution"
+  ],
+  "reasoning_summary": "The workbook contains three sheets: 'Customers' (visible, 2 rows of data), 'Orders' (visible, 2 rows of data with lookup formulas), and 'Reference' (hidden, 1 row of data). The primary entities are 'Customers' and 'Orders', linked by 'customer_id'. The 'Orders' sheet uses VLOOKUP formulas to pull 'customer_name' from the 'Customers' sheet. The 'Reference' sheet provides definitions for customer segments. The overall purpose is knowledge extraction for an analytical model.",
+  "agent_runtime": {
+    "framework": "langchain_deep_agents",
+    "reasoning_model": "qwen/qwen3.5-9b",
+    "vision_model": "google/gemma-4-12b",
+    "agents": {
+      "supervisor": "structured_adapter",
+      "semantic_agent": "structured_adapter",
+      "visual_agent": "not_needed",
+      "validation_agent": "structured_adapter"
+    }
+  },
+  "applied_directives": []
+}

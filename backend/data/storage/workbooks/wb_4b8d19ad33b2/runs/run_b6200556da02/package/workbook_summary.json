@@ -1,0 +1,15 @@
+{
+  "summary": "The workbook '02_multiple_sheets.xlsx' is an analytical model containing three sheets: 'Customers', 'Orders', and 'Reference'. The 'Customers' sheet holds master data for two customers (Aria Labs, Northwind) segmented as Enterprise and SMB. The 'Orders' sheet tracks two orders with calculated customer names via VLOOKUP formulas referencing the 'Customers' sheet. The 'Reference' sheet (hidden) defines the meaning of the 'SMB' code. The data structure supports a simple customer-order relationship with dynamic name enrichment.",
+  "counts": {
+    "sheets": 3,
+    "tables": 3,
+    "formulas": 2,
+    "images": 0,
+    "charts": 0,
+    "comments": 0,
+    "semantic_units": 5,
+    "graph_nodes": 7,
+    "graph_edges": 6
+  },
+  "semantic_mode": "local_model"
+}

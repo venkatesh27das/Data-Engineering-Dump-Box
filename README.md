@@ -1,236 +1,91 @@
-# Knowledge Graph Builder
+# Workbook Agent
 
-Knowledge Graph Builder is a local-first application that turns database schemas, tabular data, documents, and images into reviewable knowledge assets and an explorable Neo4j graph. Runs execute in the background, preserve their progress and lineage, and can use either LM Studio or an authenticated OpenAI-compatible AI gateway.
-
-![Knowledge Graph Builder Build screen](application_screenshot/Build%20Current.jpg)
-
-## What the application does
-
-1. Define the business question the graph should answer.
-2. Upload structured and unstructured sources.
-3. Launch a background extraction run and monitor each agent/tool step.
-4. Inspect evidence, confidence, temporary outputs, and lineage.
-5. Review generated entities and relationships before publishing them.
-6. Publish approved assets idempotently to Neo4j and explore the result.
-
-The repository is a proof of concept. It is suitable for local evaluation and extension, but its in-process worker and local storage are not intended to be a production multi-user deployment.
-
-## Application tabs
-
-| Tab | Route | Why it matters |
-| --- | --- | --- |
-| **Build** | `/` | Define the knowledge objective, upload sources, configure a run, save a draft, and send the work to the background queue. |
-| **Run Queue** | `/queue` | Monitor queued/running/completed jobs. Open a run to inspect events, intermediate assets, errors, and lineage; cancel active work or delete a terminal run and its local assets. |
-| **Graph Assets** | `/assets` | Review extracted concepts, entities, relationships, facts, and events with confidence and source evidence. Approve, flag for review, or reject before publication. |
-| **Graph Explorer** | `/graph` | Explore the project-scoped graph published to Neo4j, traverse relationships, inspect provenance, and run guarded read-only Cypher queries. |
-
-<details>
-<summary>Graph Assets screen</summary>
-
-![Graph Assets screen](application_screenshot/Graph%20Assest%20Tab.png)
-
-</details>
-
-<details>
-<summary>Graph Explorer screen</summary>
-
-![Graph Explorer screen](application_screenshot/Graph%20Explorer%20Tab.png)
-
-</details>
+Workbook Agent is a local-first application that turns Excel workbooks into traceable knowledge packages. It preserves sheets, regions, tables, formulas, images, charts, relationships, and source provenance instead of flattening the workbook into loose text.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    User["Browser user"] --> UI["React + Vite UI"]
-    UI --> API["FastAPI REST + SSE API"]
-
-    API --> ProjectStore["SQLite metadata, reviews, events"]
-    API --> FileStore["Local uploads and run artifacts"]
-    API --> Queue["Bounded in-process task manager"]
-
-    Queue --> Workflow["LangGraph supervisor workflow"]
-    Workflow --> Source["Source Analyst"]
-    Workflow --> Knowledge["Knowledge Engineer"]
-    Workflow --> Modeller["Graph Modeller"]
-    Workflow --> Reviewer["Quality Reviewer"]
-
-    Source --> Parsers["SQL / JSON / CSV / PDF / DOCX / image parsers"]
-    Knowledge --> Provider{"Selected model provider"}
-    Modeller --> Provider
-    Reviewer --> Provider
-    Provider --> LM["LM Studio"]
-    Provider --> Gateway["OpenAI-compatible gateway"]
-
-    Workflow --> Package["Versioned knowledge package + lineage"]
-    Package --> Review["Graph Assets review"]
-    Review --> Publisher["Approved-only Neo4j publisher"]
-    Publisher --> Neo4j["Neo4j Aura / Neo4j"]
-    Neo4j --> Explorer["Cytoscape Graph Explorer"]
+```text
+React UI ── REST/SSE ── FastAPI ── SQLite + local object storage
+                              ├── background workbook pipeline
+                              ├── Deep Agents runtime + structured fallback
+                              └── LM Studio chat, vision, and embeddings
 ```
 
-Starting a run returns immediately. The backend task manager executes it with bounded concurrency while SQLite retains run state, events, intermediate-output metadata, and lineage. On an API restart, unfinished in-process jobs are reconciled rather than silently appearing active. Completed packages remain available for review.
+The deterministic pipeline remains usable when LM Studio is offline. When it is online, specialist planning, semantic, visual, validation, and feedback agents use local models, and embedding vectors are written into the package. Agent failures are isolated and marked as degraded rather than blocking deterministic package creation. Uploaded macros are detected and recorded but are never executed.
 
-## Quick start
+## Prerequisites
 
-### Prerequisites
+- Node.js 20+
+- Python 3.11+ (managed automatically by `uv`)
+- `uv`
+- Optional: Docker Desktop and LM Studio
 
-- Python 3.12 or newer
-- Node.js 20 or newer
-- [`uv`](https://docs.astral.sh/uv/)
-- one model endpoint: LM Studio **or** an OpenAI-compatible gateway
-- optional: Neo4j Aura/Neo4j for publication and graph exploration
-- optional: Tesseract for OCR of PNG/JPEG sources
-
-From a fresh clone:
-
-```bash
-git clone <repository-url>
-cd Data-Engineering-Dump-Box
-./scripts/run-local.sh --install
-```
-
-The launcher creates `.env` from `.env.example` if it is missing, installs dependencies when `--install` is supplied, validates the selected model provider, and starts both services. Open:
-
-- application: `http://127.0.0.1:5173`
-- API documentation: `http://127.0.0.1:8000/docs`
-
-Press `Ctrl+C` to stop both services. On later starts, dependencies are already present:
-
-```bash
-./scripts/run-local.sh
-```
-
-Validate configuration without starting anything:
-
-```bash
-./scripts/run-local.sh --check
-```
-
-Ports `8000` and `5173` must be available. The launcher reports an existing owner and exits; it never kills an unrelated process.
-
-## Configure the model provider
-
-Copy the environment template if the launcher has not already done so:
+## Local startup
 
 ```bash
 cp .env.example .env
+make install
+make create-fixtures
+make backend
 ```
 
-Never commit `.env`. Select exactly one option below.
+In a second terminal:
 
-### Option A: LM Studio
-
-Start LM Studio's local server and use the exact model identifiers returned by its `/v1/models` endpoint:
-
-```dotenv
-AI_PROVIDER=lmstudio
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
-LMSTUDIO_ORCHESTRATOR_MODEL=your-loaded-model-id
-LMSTUDIO_KNOWLEDGE_MODEL=your-loaded-model-id
-LMSTUDIO_TIMEOUT_SECONDS=120
+```bash
+make frontend
 ```
 
-The two roles may use the same model. A smaller instruction model can make orchestration faster; a stronger structured-output model is usually more reliable for knowledge extraction.
+Open <http://localhost:5173>. The API documentation is at <http://localhost:8000/docs>.
 
-### Option B: OpenAI-compatible AI gateway
+The API uses a lightweight in-process background worker by default so the core flow works without Redis. `make redis` and `make worker` are provided for the production queue migration boundary.
 
-Use this for a hosted model gateway, proxy, or self-hosted service that implements the OpenAI API shape:
+## LM Studio setup
 
-```dotenv
-AI_PROVIDER=openai_compatible
-OPENAI_COMPATIBLE_BASE_URL=https://gateway.example.com/v1
-OPENAI_COMPATIBLE_API_KEY=replace-with-your-secret
-OPENAI_COMPATIBLE_ORCHESTRATOR_MODEL=provider/model-name
-OPENAI_COMPATIBLE_KNOWLEDGE_MODEL=provider/model-name
-OPENAI_COMPATIBLE_TIMEOUT_SECONDS=120
+1. Load suitable reasoning, vision, and embedding models in LM Studio.
+2. Start its OpenAI-compatible local server on port `1234`.
+3. Leave model role variables blank for automatic local selection, or set `LLM_REASONING_MODEL`, `LLM_VISION_MODEL`, and `EMBEDDING_MODEL` explicitly.
+4. Run `make verify-lmstudio`, or use **Settings → Test capabilities** for structured chat, image understanding, and vector probes.
+
+The current automatic preferences select a Qwen chat model for reasoning, a vision-capable Gemma/VL model for images, and a model containing `embed` for vectors. Settings changed through `PUT /api/v1/models/config` are saved locally in `data/model_config.json`.
+
+When the API runs in Docker on macOS or Windows, use `http://host.docker.internal:1234/v1`.
+
+## Docker startup
+
+```bash
+docker compose up --build
 ```
 
-The application sends the key as `Authorization: Bearer <key>`. The gateway must expose `GET /models` and `POST /chat/completions`. Knowledge extraction requests OpenAI-style JSON Schema structured output; choose a gateway/model combination that supports `response_format.type=json_schema`. `POST /embeddings` is only needed when an embedding model is configured and used.
+## Using the application
 
-### Neo4j
+Drop an `.xlsx`, `.xlsm`, or `.xlsb` file on Home, choose a purpose, and select **Analyze Workbook**. The run page streams recoverable progress. Completed output is organized under `data/storage/workbooks/{id}/runs/{id}/package` and can be downloaded as a ZIP.
 
-Graph generation and asset review work without Neo4j. Configure it to publish approved assets and use Graph Explorer:
+The package includes a workbook manifest, sheet/table/formula/image/chart metadata, normalized Parquet tables, contextual semantic units, embedding-ready chunks, generated vectors, graph nodes/edges, lineage, quality results, and review items. Agent execution mode and chosen models are recorded in the manifest.
 
-```dotenv
-NEO4J_URI=neo4j+s://your-instance.databases.neo4j.io
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=replace-with-your-password
-NEO4J_DATABASE=neo4j
-```
+Advanced Excel coverage includes multi-row merged headers, repeated data blocks, label/value forms, external links, workbook connections, query-table and Power Query package detection, pivot metadata, conditional formatting, data validation, static VBA inspection, chart series/axis/source interpretation, embedded-image OCR, and value/table/semantic extraction for `.xlsb` files.
 
-See [Local setup](docs/SETUP.md) for manual startup and troubleshooting, then use the [demo runbook](docs/DEMO_RUNBOOK.md) for a complete synthetic procurement workflow.
+Reprocessing accepts plain-language feedback, converts it to typed directives, creates a child run, and limits work to impacted assets where possible. Runs can be compared and accepted as the workbook's current version.
 
-## Supported inputs
-
-| Category | Formats | Processing |
-| --- | --- | --- |
-| Structured | `.sql`, `.json`, `.csv` | Typed schema/tabular parsing and normalization |
-| Documents | `.pdf`, `.docx` | Text extraction with source-level evidence |
-| Images | `.png`, `.jpg`, `.jpeg` | OCR through Tesseract when installed |
-
-Uploads are size-limited by `MAX_UPLOAD_MB` and stored beneath `UPLOAD_DIR`. Generated packages and intermediate files are stored beneath `ARTIFACT_DIR`.
-
-## Current features
-
-- Objective-driven Build workflow with drafts, reset, run summary, and responsive layouts.
-- Background run queue with bounded concurrency, persisted status/history, cancellation, and cascading deletion of local run assets.
-- Detailed progress events, agent/tool visibility, intermediate artifacts, confidence, evidence, and lineage.
-- SQL, JSON, CSV, PDF, DOCX, and image/OCR source parsing.
-- Supervisor planning and specialist Source Analyst, Knowledge Engineer, Graph Modeller, and Quality Reviewer stages.
-- Structured-output validation, one corrective retry, quality scoring, and validation-driven re-planning.
-- Canonical concepts, entities, relationships, facts, events, graph schema, and provenance models.
-- Asset filtering, pagination, evidence inspection, and persistent approve/review/reject decisions.
-- Approved-only, parameterized, idempotent Neo4j publication with publication history.
-- Cytoscape graph visualization, search, filters, traversal depth, details, evidence, and guarded read-only Cypher.
-- LM Studio and Bearer-authenticated OpenAI-compatible model providers with separate orchestration/knowledge model roles.
-- Automated backend/frontend tests, synthetic fixtures, health indicators, and guarded demo reset tooling.
-
-Deleting a terminal run removes its events, lineage, intermediate records, review/publication records, and generated local package. It deliberately does **not** delete graph data already published to Neo4j.
-
-## Future features
-
-These are roadmap items, not current capabilities:
-
-- External durable workers and a broker-backed queue for multi-instance execution.
-- Authentication, workspaces, role-based access control, and per-user audit trails.
-- PostgreSQL/object storage backends and configurable artifact retention policies.
-- Published-graph rollback/deletion with explicit impact previews.
-- Managed deployment assets, secrets management, and horizontal scaling.
-- Gateway-specific headers, OAuth/key rotation, rate-limit handling, and provider fallbacks.
-- Expanded OCR/table extraction, chunking, multimodal models, and very large-file ingestion.
-- Vector retrieval/RAG, graph version comparison, observability dashboards, and extraction evaluations.
-
-## Verify the solution
-
-Run the complete backend and frontend verification suite:
+## Tests and quality
 
 ```bash
 make test
+make lint
+make format
 ```
 
-This runs Pytest, frontend linting, the production TypeScript/Vite build, and Vitest.
+Synthetic workbook fixtures can be recreated with `make create-fixtures` and demo rows with `make seed-demo`.
 
-## Project layout
+## Known limitations
 
-```text
-backend/                 FastAPI API, workflow, providers, persistence, Neo4j adapter
-frontend/                React application and Cytoscape graph explorer
-application_screenshot/  README and product reference screenshots
-docs/                    Setup guide and end-to-end demo runbook
-scripts/                 Local launcher and operational utilities
-test/                    Synthetic knowledge-graph fixture pack
-```
+- The first implementation uses an in-process worker; the Redis/RQ adapter boundary is scaffolded for distributed operation.
+- Local inference speed depends on the selected models and hardware. A model-backed run can take longer than deterministic extraction.
+- OCR uses the configured local vision model and stores verbatim text blocks with image provenance. If vision is unavailable, the image remains packaged for later interpretation.
+- Impacted-assets feedback is converted to typed directives; the current local worker safely rebuilds the canonical package so cross-file consistency is preserved.
+- Excel formulas are inspected, not recalculated.
+- `.xlsb` value, region, table, and semantic-unit extraction is supported. Formula expressions, hidden-sheet state, and drawings remain explicitly flagged when the binary parser cannot expose them.
+- Encrypted workbooks are rejected; password recovery is never attempted.
 
-## Useful commands
+## Security and privacy
 
-```bash
-make install       # install/synchronize backend and frontend dependencies
-make local         # start both services through scripts/run-local.sh
-make api           # start only FastAPI with reload
-make web           # start only Vite
-make test          # run all verification
-make reset-demo    # preview and confirm deletion of local demo state
-```
-
-The OpenAPI route inventory and request/response schemas are available at `http://127.0.0.1:8000/docs` while the backend is running.
+Workbook content stays on the local machine by default. Filenames are sanitized, upload size and archive expansion are bounded, HTML is not rendered from cells, and cell values are not logged. VBA and embedded code are only detected and statically recorded—never executed.

@@ -1,0 +1,6 @@
+{
+  "status": "completed",
+  "vector_count": 6,
+  "model": "text-embedding-nomic-embed-text-v1.5",
+  "dimensions": 768
+}

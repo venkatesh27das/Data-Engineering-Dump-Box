@@ -1,2632 +1,1977 @@
-# CODEX.md — Knowledge Graph Builder POC
+# Workbook Agent — Codex Implementation Specification
 
-## 1. Purpose
+## 1. Purpose of this file
 
-Build a local-first POC application called **Knowledge Graph Builder**.
+This file is the implementation contract for Codex. Build a working local-first web application that allows a user to:
 
-The application allows a user to:
+1. Upload an Excel workbook.
+2. Let the system inspect and understand its structure, formulas, relationships, images, charts, and business context.
+3. Produce a normalized **Workbook Knowledge Package** suitable for embeddings, entity extraction, relationship extraction, knowledge-graph construction, RAG, and downstream analytics.
+4. Review low-confidence findings.
+5. Give natural-language or structured feedback.
+6. Reprocess only the impacted parts of the workbook while preserving approved outputs.
+7. Inspect previous workbooks and processing runs.
 
-1. Define a knowledge objective.
-2. Upload structured schema files and/or unstructured documents.
-3. Run an autonomous Knowledge Asset Construction Agent.
-4. Generate graph-ready knowledge assets.
-5. Review the generated assets and their quality/evidence.
-6. Approve and publish selected assets to Neo4j Aura.
-7. Explore the resulting graph visually.
-
-This is a **POC**, not a production enterprise platform. Keep the implementation clean, modular, believable, and easy to demonstrate.
-
-The POC must prove:
-
-- structured-only processing
-- unstructured-only processing
-- hybrid structured + unstructured processing
-- dynamic agent planning
-- autonomous tool selection
-- reactive retry / re-planning
-- graph-ready asset generation
-- provenance and confidence tracking
-- human review for low-confidence assets
-- Neo4j publication
-- graph exploration
-
-Do not over-engineer enterprise-scale capabilities such as multi-tenancy, distributed queues, Kubernetes, CDC, complex IAM, or high availability.
+The initial application must run locally and use models served through **LM Studio**. The architecture must keep model providers and agent frameworks replaceable.
 
 ---
 
-# 2. Visual Source of Truth
+## 2. Product name and language
 
-The folder:
+**User-facing product name:** Workbook Agent  
+**Processing capability name:** Workbook Intelligence Agent  
+**Primary action label:** Analyze Workbook
 
-```text
-application_screenshot/
-```
-
-contains the approved application screenshots.
-
-**Codex must inspect this folder before building any frontend screen.**
-
-Treat these screenshots as the source of truth for:
-
-- layout
-- navigation
-- information hierarchy
-- spacing
-- card proportions
-- table density
-- button placement
-- graph explorer layout
-- typography hierarchy
-- border radius
-- visual tone
-- navigation behavior
-
-Do not redesign the application unless a UI detail is technically impossible.
-
-The application has only three primary navigation items:
-
-```text
-Build
-Graph Assets
-Graph Explorer
-```
-
-Do not add Dashboard, Sources, Jobs, Admin, Monitoring, Governance, or other primary navigation tabs.
-
-Settings and connection indicators live in the top header.
+Use business-friendly language in the UI. Do not expose internal terms such as chain-of-thought, prompt loop, LangChain graph, or subagent unless the user opens a technical details panel.
 
 ---
 
-# 3. POC Scope
+## 3. Product principles
 
-## 3.1 Structured data input
-
-For the POC, do **not** connect directly to enterprise databases.
-
-Users upload schema-oriented files such as:
-
-```text
-.sql
-.json
-.csv
-```
-
-Supported structured input examples:
-
-- CREATE TABLE DDL
-- exported database schema
-- table and column metadata CSV
-- schema JSON
-- optional small sample CSV files
-
-The structured-data path should extract:
-
-- tables
-- columns
-- data types
-- primary keys when present
-- foreign keys when present
-- inferred keys when possible
-- table descriptions
-- candidate business entities
-- candidate relationships
-- semantic concepts
-- schema-to-enterprise-concept mappings
-
-Do not require actual table data for the basic POC.
+1. **Simple UI, complex backend.** Keep orchestration and extraction complexity behind the interface.
+2. **Deterministic extraction first.** Use parsers and rules to establish facts. Use LLMs/VLMs for interpretation, ambiguity resolution, summarization, semantic mapping, and planning.
+3. **Never flatten the workbook prematurely.** Preserve workbook, sheet, region, table, formula, image, chart, relationship, and provenance information.
+4. **Normalized outputs are the product.** The output is not merely CSV or extracted text; it is a canonical knowledge package.
+5. **Feedback is executable.** Convert user feedback into structured processing directives and store it with the run.
+6. **Incremental reprocessing.** Reprocess only impacted assets unless the user explicitly selects the full workbook.
+7. **Traceability.** Every generated chunk, entity, relationship, or summary must point back to the workbook, sheet, cell/range, image, chart, query, or formula from which it came.
+8. **Local-first and private.** Do not send workbook content to an external service by default.
+9. **Safe processing.** Detect macros and embedded code but do not execute them.
+10. **Framework portability.** Keep the domain pipeline independent from LangChain Deep Agents or Google ADK.
 
 ---
 
-## 3.2 Unstructured data input
+## 4. Design references
 
-Users can upload:
+The user will provide application screenshots. Treat the screenshots as the visual source of truth.
+
+Expected location:
 
 ```text
-.pdf
-.docx
-.png
-.jpg
-.jpeg
+design_reference/
+├── 01-home.png
+├── 02-my-workbooks.png
+├── 03-run-history.png
+└── optional-additional-screens.png
 ```
 
-The unstructured path should create usable text and document structure, then derive graph-ready knowledge.
+Before implementing any UI screen:
 
-Expected outputs include:
+1. Inspect all files in `design_reference/`.
+2. Match layout, spacing, typography hierarchy, border radius, table density, status pills, icons, button sizes, and the green/white visual language.
+3. Reuse one consistent shell and design system across all screens.
+4. Do not add decorative dashboards, excessive KPI cards, charts, gradients, or technical panels not present in the screenshots.
+5. The UI should feel spacious, calm, and enterprise-ready.
+6. Use the screenshots for visual direction, but implement real responsive components rather than embedding screenshots.
 
-- document metadata
-- sections/pages
-- chunks/evidence spans
-- entities
-- relationships
-- concepts
-- facts/claims
-- events where relevant
-- source references
-- confidence values
+### Visual style
 
-Scanned PDFs or images may use OCR.
+- White and very light gray surfaces.
+- Excel-inspired green as the primary action color.
+- Soft green selected-navigation background.
+- Thin neutral borders.
+- Minimal shadows.
+- Rounded cards, inputs, and table containers.
+- Dark navy/charcoal text, muted gray secondary text.
+- Avoid heavy blue styling from earlier concepts.
+- Desktop-first, responsive down to tablet width.
 
 ---
 
-## 3.3 Hybrid mode
+## 5. Scope
 
-Hybrid mode combines the structured and unstructured paths.
+### 5.1 MVP scope
 
-Example:
+Support:
 
-```text
-supplier_schema.sql
-contracts.pdf
-product_catalog.docx
-```
+- `.xlsx`
+- `.xlsm` with macro detection and static inspection only
+- `.xlsb` on a best-effort basis
+- Multiple sheets
+- Hidden and very hidden sheets where discoverable
+- Multiple tables or regions per sheet
+- Multi-row and merged headers
+- Repeated blocks
+- Forms and label-value layouts
+- Cross-sheet formulas
+- Named ranges
+- Structured table references
+- Lookup relationships
+- Basic external-link and workbook-connection detection
+- Embedded images and screenshots
+- Chart metadata and chart summaries
+- Comments and notes
+- Conditional-formatting metadata where accessible
+- Normalized datasets
+- Semantic content units
+- Formula and lineage assets
+- Entity and relationship candidates
+- Embedding-ready chunks
+- Review queue
+- Natural-language feedback
+- Incremental reprocessing
+- Run history and run comparison
+- Downloadable output package
 
-The agent should be able to identify that:
+### 5.2 Explicit non-goals for the first release
 
-- a supplier from the schema
-- a supplier mentioned in a contract
-- an alias in a product document
+Do not attempt to:
 
-may represent the same canonical entity.
-
-Hybrid mode should therefore invoke cross-source entity resolution.
-
----
-
-# 4. Core Product Concept
-
-The main agent is the:
-
-```text
-Knowledge Asset Construction Agent
-```
-
-Its job is not to directly create random Neo4j nodes.
-
-Its canonical output is a typed:
-
-```text
-KnowledgeAssetPackage
-```
-
-Neo4j is a downstream graph publication target.
-
-Architecture:
-
-```text
-Sources
-   ↓
-Knowledge Asset Construction Agent
-   ↓
-KnowledgeAssetPackage
-   ↓
-Review / Validate
-   ↓
-Graph Publisher
-   ↓
-Neo4j Aura
-   ↓
-Graph Explorer
-```
-
-This separation is mandatory.
+- Execute VBA or Office Scripts.
+- Reproduce the full Microsoft Excel calculation engine.
+- Crack passwords or bypass workbook protection.
+- Support every proprietary add-in.
+- Guarantee refresh of inaccessible external systems.
+- Convert every chart image into exact underlying data.
+- Build a full graph visualization product.
+- Build a full vector database administration UI.
+- Build role-based access control beyond a simple local user mode.
+- Add cloud deployment integrations unless the core local workflow is complete.
 
 ---
 
-# 5. Recommended Technology Stack
+## 6. Recommended technical stack
 
-## Frontend
+### 6.1 Frontend
 
 Use:
 
-```text
-React
-TypeScript
-Vite
-Tailwind CSS
-Cytoscape.js
-```
+- React
+- TypeScript
+- Vite
+- React Router
+- TanStack Query
+- Zustand only for small client-side UI state
+- React Hook Form
+- Zod
+- Tailwind CSS
+- shadcn/ui primitives where useful
+- Lucide React icons
+- Native EventSource for Server-Sent Events
+- Vitest and React Testing Library
+- Playwright for end-to-end tests
 
-Use a lightweight component approach.
+Do not use a large state-management framework. Server state belongs in TanStack Query.
 
-Do not introduce a heavy UI framework unless clearly needed.
-
-Prefer:
-
-- semantic HTML
-- reusable React components
-- Tailwind utility styling
-- Lucide icons or equivalent lightweight open-source icon library
-
----
-
-## Backend
+### 6.2 Backend
 
 Use:
 
-```text
-Python 3.12+
-FastAPI
-Pydantic
-Deep Agents
-LangGraph
-LangChain model/tool integrations only where needed
-Neo4j Python driver
-SQLite
-```
+- Python 3.11+
+- FastAPI
+- Pydantic v2
+- SQLAlchemy 2.x or SQLModel
+- Alembic
+- SQLite for local development
+- PostgreSQL-compatible schema for later deployment
+- Redis + RQ for background processing jobs
+- Server-Sent Events for progress updates
+- `structlog` or standard structured JSON logging
+- `pytest`, `pytest-asyncio`, and `httpx`
 
-The backend runs locally on the developer Mac.
+Do not run long workbook processing directly in the API request process.
 
----
+### 6.3 Workbook and document processing libraries
 
-## Local model runtime
+Use a modular adapter layer. Candidate open-source libraries:
 
-Use:
+- `openpyxl` for `.xlsx` and `.xlsm` workbook structure, formulas, styles, tables, charts, comments, and images where supported
+- `pyxlsb` for `.xlsb`
+- `xlrd` only for legacy `.xls` if later enabled
+- `pandas` or `polars` for tabular normalization
+- `pyarrow` for Parquet output
+- Python `zipfile` and `lxml` for direct OOXML package inspection when a high-level library does not expose workbook relationships
+- `oletools` for static macro inspection
+- `msoffcrypto-tool` only to detect or open a workbook when a password is explicitly supplied by the user; never attempt password recovery
+- `Pillow` for image handling
+- Optional `PaddleOCR` or `Tesseract` adapter for text-heavy images
+- Optional `img2table` adapter for scanned table extraction
+- `networkx` for in-memory dependency graphs and graph algorithms
 
-```text
-LM Studio
-```
+Keep every parser behind an interface so a library can be replaced without changing the domain model.
 
-Default base URL:
+### 6.4 LLM, VLM, and embeddings
+
+Default local endpoint:
 
 ```text
 http://localhost:1234/v1
 ```
 
-LM Studio must be integrated through an abstraction.
+Use an OpenAI-compatible client adapter so LM Studio models can be configured by environment variables.
 
-Do not scatter direct LM Studio calls across the codebase.
+Required model roles:
 
-Implement:
+- `reasoning_model`: workbook planning, semantic interpretation, feedback interpretation, validation summaries
+- `vision_model`: screenshots, images, pasted charts, scanned forms, and diagram interpretation
+- `embedding_model`: semantic content-unit embeddings
 
-```python
-class ModelProvider:
-    async def chat(...)
-    async def structured_generate(...)
-    async def embed(...)
-    async def health_check(...)
-```
+Do not hard-code model names. Discover available models and allow configuration through environment variables and a small settings file.
 
-Then implement:
+### 6.5 Agent framework
 
-```text
-LMStudioProvider
-```
+Use **LangChain Deep Agents** for the first implementation, behind an internal `AgentRuntime` interface.
 
-All model names must be configurable.
+Reasons for this implementation choice:
 
----
+- The workflow needs planning and tool invocation.
+- Specialist tasks can be delegated without embedding orchestration logic in API routes.
+- The model provider remains configurable.
 
-## Graph database
+Create a second empty adapter boundary for **Google ADK**. Do not implement both frameworks at the same time in the MVP.
 
-Use:
-
-```text
-Neo4j Aura
-```
-
-Neo4j is an external online dependency.
-
-Credentials must be supplied through environment variables.
-
-Use the official Python package:
-
-```text
-neo4j
-```
-
-Do not use the deprecated `neo4j-driver` package.
+The domain services and deterministic tools must not import Deep Agents directly. Only `infrastructure/agents/deepagents_runtime.py` should depend on the framework.
 
 ---
 
-## Graph visualization
-
-Use:
+## 7. High-level architecture
 
 ```text
-Cytoscape.js
+React Web App
+     │
+     │ REST + SSE
+     ▼
+FastAPI API
+     │
+     ├── Workbook service
+     ├── Run service
+     ├── Review and feedback service
+     ├── Asset service
+     └── Model configuration service
+             │
+             ▼
+       Redis / RQ Worker
+             │
+             ▼
+   Workbook Processing Orchestrator
+             │
+     ┌───────┼───────────────────────────────┐
+     │       │                               │
+     ▼       ▼                               ▼
+Deterministic extraction tools      Agent runtime        Validation engine
+     │                               │                    │
+     ├── workbook profiler           ├── supervisor       ├── reconciliation
+     ├── region detector             ├── structure agent  ├── schema checks
+     ├── table normalizer            ├── semantic agent   ├── lineage checks
+     ├── formula parser              ├── visual agent     └── confidence scoring
+     ├── image extractor             └── validation agent
+     ├── chart extractor
+     ├── connection inspector
+     └── package writer
+             │
+             ▼
+   Canonical Workbook Knowledge Package
+             │
+     ┌───────┼────────────┬──────────────┐
+     ▼       ▼            ▼              ▼
+ JSONL    Parquet       Images        Nodes/Edges
 ```
-
-Do not iframe Neo4j Browser as the primary visualization.
-
-The Graph Explorer should visually match the screenshot while retrieving graph data from the backend.
 
 ---
 
-# 6. Agent Framework Decision
+## 8. Repository structure
 
-Use:
-
-```text
-Deep Agents
-+
-LangGraph runtime
-```
-
-Reasoning model:
-
-- Deep Agents provides the high-level autonomous agent harness.
-- LangGraph provides durable state, tool orchestration, loops, interrupts, persistence, and reactive execution.
-
-Do not implement the application as a fixed linear pipeline.
-
-Incorrect:
+Create a monorepo with this structure:
 
 ```text
-parse
-→ entity extraction
-→ relationship extraction
-→ graph creation
+workbook-agent/
+├── CODEX.md
+├── README.md
+├── .env.example
+├── docker-compose.yml
+├── Makefile
+├── design_reference/
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── App.tsx
+│   │   │   ├── router.tsx
+│   │   │   └── providers.tsx
+│   │   ├── components/
+│   │   │   ├── layout/
+│   │   │   ├── common/
+│   │   │   ├── workbooks/
+│   │   │   ├── runs/
+│   │   │   ├── assets/
+│   │   │   └── review/
+│   │   ├── pages/
+│   │   │   ├── HomePage.tsx
+│   │   │   ├── WorkbooksPage.tsx
+│   │   │   ├── WorkbookDetailPage.tsx
+│   │   │   ├── RunHistoryPage.tsx
+│   │   │   ├── RunDetailPage.tsx
+│   │   │   └── SettingsPage.tsx
+│   │   ├── api/
+│   │   ├── hooks/
+│   │   ├── types/
+│   │   ├── utils/
+│   │   └── styles/
+│   └── tests/
+├── backend/
+│   ├── pyproject.toml
+│   ├── alembic.ini
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── core/
+│   │   │   ├── config.py
+│   │   │   ├── logging.py
+│   │   │   ├── errors.py
+│   │   │   └── security.py
+│   │   ├── api/
+│   │   │   ├── dependencies.py
+│   │   │   └── routes/
+│   │   │       ├── health.py
+│   │   │       ├── workbooks.py
+│   │   │       ├── runs.py
+│   │   │       ├── assets.py
+│   │   │       ├── reviews.py
+│   │   │       └── models.py
+│   │   ├── db/
+│   │   │   ├── base.py
+│   │   │   ├── session.py
+│   │   │   ├── models/
+│   │   │   └── migrations/
+│   │   ├── domain/
+│   │   │   ├── models/
+│   │   │   ├── schemas/
+│   │   │   ├── enums.py
+│   │   │   └── protocols.py
+│   │   ├── services/
+│   │   │   ├── workbook_service.py
+│   │   │   ├── run_service.py
+│   │   │   ├── feedback_service.py
+│   │   │   ├── asset_service.py
+│   │   │   ├── review_service.py
+│   │   │   └── package_service.py
+│   │   ├── processing/
+│   │   │   ├── orchestrator.py
+│   │   │   ├── stages.py
+│   │   │   ├── context.py
+│   │   │   ├── directives.py
+│   │   │   ├── confidence.py
+│   │   │   ├── extractors/
+│   │   │   ├── normalizers/
+│   │   │   ├── analyzers/
+│   │   │   ├── validators/
+│   │   │   └── package_writer/
+│   │   ├── agents/
+│   │   │   ├── runtime.py
+│   │   │   ├── supervisor.py
+│   │   │   ├── prompts/
+│   │   │   ├── tools/
+│   │   │   └── deepagents_runtime.py
+│   │   ├── llm/
+│   │   │   ├── client.py
+│   │   │   ├── model_registry.py
+│   │   │   ├── structured_output.py
+│   │   │   ├── vision.py
+│   │   │   └── embeddings.py
+│   │   ├── jobs/
+│   │   │   ├── queue.py
+│   │   │   └── tasks.py
+│   │   └── storage/
+│   │       ├── object_store.py
+│   │       ├── local_store.py
+│   │       └── paths.py
+│   └── tests/
+│       ├── unit/
+│       ├── integration/
+│       ├── fixtures/
+│       └── golden/
+└── scripts/
+    ├── seed_demo.py
+    ├── create_test_workbooks.py
+    └── verify_lmstudio.py
 ```
 
-Desired behavior:
+---
+
+## 9. Core domain entities
+
+### 9.1 Workbook
+
+Fields:
+
+- `id`
+- `original_filename`
+- `display_name`
+- `file_type`
+- `file_size_bytes`
+- `sha256`
+- `storage_uri`
+- `purpose`
+- `description`
+- `created_at`
+- `updated_at`
+- `latest_run_id`
+- `latest_status`
+- `latest_confidence`
+- `is_archived`
+
+A workbook appears once in **My Workbooks**, regardless of the number of runs.
+
+### 9.2 ProcessingRun
+
+Fields:
+
+- `id`
+- `workbook_id`
+- `parent_run_id`
+- `run_number`
+- `trigger_type`: `initial`, `manual_rerun`, `feedback_rerun`, `retry`
+- `scope`: `full_workbook`, `selected_sheets`, `selected_assets`, `impacted_assets`
+- `status`: `queued`, `profiling`, `planning`, `extracting`, `interpreting`, `validating`, `packaging`, `needs_review`, `completed`, `failed`, `cancelled`
+- `current_stage`
+- `progress_percent`
+- `started_at`
+- `completed_at`
+- `duration_seconds`
+- `overall_confidence`
+- `output_unit_count`
+- `error_code`
+- `error_message`
+- `accepted_at`
+
+Each run appears separately in **Run History**.
+
+### 9.3 Feedback
+
+Fields:
+
+- `id`
+- `run_id`
+- `workbook_id`
+- `raw_text`
+- `feedback_type`
+- `scope_type`
+- `scope_ids`
+- `created_at`
+- `created_by`
+- `parsed_directives`
+- `parse_confidence`
+- `status`: `draft`, `parsed`, `approved`, `applied`, `rejected`
+
+### 9.4 ProcessingDirective
+
+Use a typed discriminated union. Initial directive types:
+
+- `override_header_row`
+- `ignore_rows`
+- `ignore_columns`
+- `exclude_sheet`
+- `include_hidden_sheet`
+- `rename_table`
+- `rename_column`
+- `confirm_semantic_mapping`
+- `reject_semantic_mapping`
+- `confirm_relationship`
+- `reject_relationship`
+- `set_sheet_role`
+- `set_region_type`
+- `exclude_visual_asset`
+- `correct_visual_interpretation`
+- `set_business_context`
+- `set_unit_or_currency`
+- `preserve_approved_assets`
+- `force_reprocess_asset`
+
+Every directive must contain:
+
+- `directive_id`
+- `type`
+- `target`
+- `parameters`
+- `source_feedback_id`
+- `confidence`
+- `requires_confirmation`
+
+### 9.5 Asset
+
+Store a lightweight asset index in the database and the complete content in object storage.
+
+Fields:
+
+- `id`
+- `run_id`
+- `workbook_id`
+- `parent_asset_id`
+- `asset_type`
+- `title`
+- `summary`
+- `source_uri`
+- `content_uri`
+- `preview_uri`
+- `source_sheet`
+- `source_range`
+- `confidence`
+- `review_status`
+- `is_approved`
+- `created_at`
+
+Asset types:
+
+- `workbook_manifest`
+- `workbook_summary`
+- `sheet`
+- `region`
+- `table`
+- `column`
+- `record`
+- `form_record`
+- `formula`
+- `business_rule`
+- `named_range`
+- `query`
+- `connection`
+- `image`
+- `chart`
+- `comment`
+- `semantic_unit`
+- `embedding_chunk`
+- `entity`
+- `relationship`
+- `lineage_edge`
+- `quality_issue`
+- `review_item`
+
+### 9.6 ReviewItem
+
+Fields:
+
+- `id`
+- `run_id`
+- `asset_id`
+- `review_type`
+- `title`
+- `description`
+- `evidence`
+- `suggested_action`
+- `confidence`
+- `severity`
+- `status`: `open`, `confirmed`, `corrected`, `rejected`, `ignored`
+- `resolution`
+- `resolved_at`
+
+---
+
+## 10. Canonical Workbook Knowledge Package
+
+Each completed run must create this package:
 
 ```text
-understand objective
-→ inspect sources
-→ determine modalities
-→ create plan
-→ select tools/subagents
-→ execute
-→ evaluate result
-→ react/re-plan if needed
-→ converge
-→ create asset package
+storage/workbooks/{workbook_id}/runs/{run_id}/package/
+├── manifest.json
+├── workbook_summary.json
+├── metadata/
+│   ├── sheets.jsonl
+│   ├── regions.jsonl
+│   ├── tables.jsonl
+│   ├── columns.jsonl
+│   ├── formulas.jsonl
+│   ├── named_ranges.jsonl
+│   ├── queries.jsonl
+│   ├── connections.jsonl
+│   ├── charts.jsonl
+│   └── images.jsonl
+├── structured_data/
+│   ├── {normalized_table_id}.parquet
+│   └── ...
+├── semantic_units/
+│   ├── workbook_units.jsonl
+│   ├── sheet_units.jsonl
+│   ├── table_units.jsonl
+│   ├── record_units.jsonl
+│   ├── formula_units.jsonl
+│   └── visual_units.jsonl
+├── graph/
+│   ├── nodes.jsonl
+│   └── edges.jsonl
+├── media/
+│   ├── images/
+│   └── embedded_files/
+├── embedding_input/
+│   └── chunks.jsonl
+├── quality/
+│   ├── validation_report.json
+│   ├── issues.jsonl
+│   └── review_items.jsonl
+└── lineage/
+    ├── technical_lineage.jsonl
+    └── business_lineage.jsonl
 ```
 
-The agent must be free to skip irrelevant steps.
+### 10.1 Canonical content unit
+
+Implement this as a Pydantic model:
+
+```json
+{
+  "unit_id": "wb_001.sheet_03.table_02.row_015",
+  "unit_type": "table_record",
+  "title": "Equipment inspection record EQ-2034",
+  "text_content": "Equipment EQ-2034 was inspected on 14 August 2026. A crack was observed near the inlet valve. The status is Requires Maintenance.",
+  "structured_content": {
+    "equipment_id": "EQ-2034",
+    "inspection_date": "2026-08-14",
+    "observation": "Crack near inlet valve",
+    "status": "Requires Maintenance"
+  },
+  "semantic_context": {
+    "domain": "Equipment Maintenance",
+    "entity_type": "Equipment Inspection",
+    "business_terms": ["Equipment", "Inspection", "Maintenance Status"]
+  },
+  "structural_context": {
+    "workbook_id": "wb_001",
+    "sheet_id": "sheet_03",
+    "sheet_name": "Inspection",
+    "region_id": "region_04",
+    "table_id": "table_02",
+    "row_number": 15
+  },
+  "media_references": ["wb_001.sheet_03.image_008"],
+  "relationships": [
+    {
+      "type": "INSPECTION_OF",
+      "target_id": "equipment.EQ-2034"
+    }
+  ],
+  "provenance": {
+    "source_file": "equipment_inspection.xlsx",
+    "source_range": "A15:H15",
+    "source_cells": ["A15", "B15", "C15", "D15", "E15", "F15", "G15", "H15"],
+    "extraction_method": "table_parser",
+    "processor_version": "0.1.0"
+  },
+  "quality": {
+    "extraction_confidence": 0.98,
+    "semantic_confidence": 0.91,
+    "validation_status": "passed"
+  },
+  "embedding_status": "ready",
+  "entity_extraction_status": "ready"
+}
+```
+
+### 10.2 Embedding chunk
+
+```json
+{
+  "chunk_id": "chunk.wb_001.sheet_03.table_02.row_015",
+  "chunk_type": "table_record",
+  "embedding_text": "For the East region and Consumer Electronics category, forecast revenue for August 2026 is INR 5.8 million based on a growth assumption of 7.5 percent.",
+  "metadata": {
+    "workbook_id": "wb_001",
+    "run_id": "run_018",
+    "sheet_name": "Regional Forecast",
+    "table_name": "Regional Sales Forecast",
+    "region": "East",
+    "product_category": "Consumer Electronics",
+    "forecast_month": "2026-08",
+    "source_range": "A15:H15"
+  },
+  "source_unit_id": "wb_001.sheet_03.table_02.row_015"
+}
+```
+
+Rules:
+
+- Never embed isolated values without labels and context.
+- Do not create one embedding per cell.
+- Use workbook, sheet, table, record, formula, visual, and relationship-level semantic units.
+- Include source metadata with every chunk.
+- Keep derived insights clearly marked as derived.
+
+### 10.3 Graph edge
+
+```json
+{
+  "edge_id": "edge_00157",
+  "source_id": "wb_001.sheet_03.table_02",
+  "relationship_type": "DERIVED_FROM",
+  "target_id": "wb_001.sheet_02.table_01",
+  "relationship_description": "The regional forecast table is derived from historical sales data.",
+  "evidence": ["formula_reference", "query_dependency"],
+  "confidence": 0.97,
+  "provenance": {
+    "source_sheet": "Regional Forecast",
+    "source_range": "H15:H200"
+  }
+}
+```
+
+---
+
+## 11. Processing pipeline
+
+Implement the pipeline as explicit, restartable stages. Each stage writes durable intermediate outputs and emits progress events.
+
+### Stage 0: Intake and safety
+
+- Validate extension and MIME signature.
+- Calculate SHA-256.
+- Copy original file to immutable object storage.
+- Detect encryption/protection.
+- Detect macros, embedded objects, and external links.
+- Reject unsupported or unsafe content with a clear error.
+- Never execute workbook code.
+
+### Stage 1: Workbook profiling
+
+Create a deterministic manifest containing:
+
+- Workbook properties
+- Sheet names and visibility
+- Used ranges
+- Tables
+- Merged cells
+- Formula counts
+- Named ranges
+- Comments/notes
+- Charts
+- Images/shapes
+- Pivot metadata where accessible
+- Query/connection metadata where accessible
+- External workbook references
+- Macro presence
+- Protection state
+
+### Stage 2: Complexity classification
+
+Score independently:
+
+- Layout complexity
+- Data complexity
+- Dependency complexity
+- Computation complexity
+- Connectivity complexity
+- Visual complexity
+- Semantic complexity
+- Automation complexity
+
+Also infer one or more workbook archetypes:
+
+- flat dataset
+- multi-table data package
+- human-readable report
+- analytical model
+- BI workbook
+- operational application
+
+The agent can help interpret the profile, but the score must include deterministic evidence.
+
+### Stage 3: Processing plan
+
+The supervisor creates a structured plan that selects only the required tools. Store the plan as JSON.
 
 Example:
 
-- schema-only project should not invoke OCR
-- PDF-only project should not run SQL schema analysis
-- low-quality scanned PDF may trigger OCR after parsing quality fails
-- ambiguous entity resolution should trigger additional evidence analysis
-
----
-
-# 7. Agent Architecture
-
-Implement one supervisor and a small number of specialist subagents.
-
-Do not create dozens of agents.
-
-Initial architecture:
-
-```text
-Knowledge Asset Supervisor
-        │
-        ├── Source Analyst
-        ├── Knowledge Engineer
-        ├── Graph Modeller
-        └── Quality Reviewer
+```json
+{
+  "workbook_archetype": "analytical_model",
+  "steps": [
+    "detect_regions",
+    "extract_tables",
+    "parse_formula_dependencies",
+    "classify_input_calculation_output_sheets",
+    "process_visual_assets",
+    "generate_semantic_units",
+    "validate_reconciliations"
+  ],
+  "excluded_steps": ["full_macro_analysis"],
+  "reasoning_summary": "The workbook contains multiple calculation sheets, cross-sheet formulas, assumptions, and a dashboard."
+}
 ```
 
----
+Do not store hidden chain-of-thought. Store only a concise decision summary and evidence.
 
-## 7.1 Knowledge Asset Supervisor
+### Stage 4: Sheet and region understanding
 
-Responsibilities:
+Detect and classify regions:
 
-- understand project objective
-- inspect available sources
-- classify source modality
-- decide which graph asset levels are required
-- formulate tasks
-- delegate to specialist agents/tools
-- track execution state
-- inspect results
-- trigger re-planning
-- determine whether human review is required
-- assemble final KnowledgeAssetPackage
-
-The supervisor must not perform every operation itself.
-
-Use specialist agents and deterministic tools.
-
----
-
-## 7.2 Source Analyst
-
-Responsibilities:
-
-Structured:
-
-- parse DDL
-- inspect schema JSON/CSV
-- discover tables and attributes
-- extract explicit PK/FK
-- infer candidate relationships
-- identify likely business objects
-
-Unstructured:
-
-- identify file type
-- parse file
-- detect document structure
-- detect low parsing quality
-- decide whether OCR is needed
-- return normalized document representation
-
-Output should be typed.
-
-Example:
-
-```python
-class SourceAnalysisResult(BaseModel):
-    source_id: str
-    modality: Literal["structured", "unstructured"]
-    source_type: str
-    summary: str
-    detected_assets: list[str]
-    recommended_tools: list[str]
-    warnings: list[str]
-```
-
----
-
-## 7.3 Knowledge Engineer
-
-Responsibilities:
-
-- identify business concepts
-- extract entities
-- extract relationships
-- extract facts/claims
-- extract events
-- extract aliases
-- map synonyms
-- propose taxonomy/ontology concepts where appropriate
-- generate semantic mappings
-- preserve evidence references
-
-The Knowledge Engineer must return structured data.
-
-Do not rely on free-form prose as the source of truth.
-
----
-
-## 7.4 Graph Modeller
-
-Responsibilities:
-
-- convert semantic assets into graph-ready schema
-- define node labels
-- define relationship types
-- identify node properties
-- identify edge properties
-- determine constraints
-- prepare graph publication manifest
-
-Graph Modeller should not directly publish by default.
-
-It creates a graph model inside the KnowledgeAssetPackage.
-
----
-
-## 7.5 Quality Reviewer
-
-Responsibilities:
-
-Evaluate:
-
-- entity confidence
-- relationship confidence
-- fact confidence
-- source/evidence coverage
-- semantic consistency
-- duplicates
-- possible contradictions
-- orphan nodes
-- missing provenance
-- graph schema validity
-- unresolved aliases
-
-Return:
-
-```text
-PASS
-REVIEW_REQUIRED
-REPLAN_REQUIRED
-FAIL
-```
-
-The supervisor decides the next step.
-
----
-
-# 8. Reactive Execution Pattern
-
-At least one genuine reactive loop must exist in the implementation.
-
-Example 1:
-
-```text
-parse document
-→ parsing confidence poor
-→ reviewer flags issue
-→ supervisor selects OCR
-→ source reprocessed
-→ extraction continues
-```
-
-Example 2:
-
-```text
-entity resolution
-→ duplicate ambiguity remains
-→ reviewer flags entities
-→ supervisor requests more evidence
-→ Knowledge Engineer analyzes documents
-→ resolver retries
-```
-
-Example 3:
-
-```text
-relationship has no evidence
-→ validation fails
-→ agent re-runs evidence-focused relation extraction
-```
-
-Record these as observable agent events.
-
-Do not expose hidden chain-of-thought.
-
-The UI may show:
-
-```text
-Analyzing sources
-Discovering concepts
-Extracting entities
-Resolving entities
-3 ambiguous entities detected
-Re-running entity resolution with additional evidence
-Validating assets
-Completed
-```
-
----
-
-# 9. Tool Architecture
-
-Keep deterministic operations as tools.
-
-Suggested structure:
-
-```text
-backend/app/tools/
-
-structured/
-    parse_ddl.py
-    parse_schema_json.py
-    parse_schema_csv.py
-    infer_keys.py
-    infer_schema_relationships.py
-
-documents/
-    parse_pdf.py
-    parse_docx.py
-    parse_image.py
-    run_ocr.py
-    chunk_document.py
-
-knowledge/
-    extract_entities.py
-    extract_relationships.py
-    extract_facts.py
-    extract_events.py
-    discover_concepts.py
-    resolve_entities.py
-    map_semantics.py
-
-graph/
-    build_graph_schema.py
-    validate_graph_schema.py
-    generate_cypher.py
-    publish_neo4j.py
-    query_neo4j.py
-
-quality/
-    score_assets.py
-    validate_evidence.py
-    detect_duplicates.py
-    detect_conflicts.py
-    validate_package.py
-```
-
-Tools should have narrow responsibilities and typed inputs/outputs.
-
-Do not create one giant `process_everything()` tool.
-
----
-
-# 10. Graph Asset Levels
-
-Support these graph-ready asset categories.
-
-## L0 — Source and Evidence Assets
-
-Examples:
-
-- source
-- file
-- page
-- section
-- chunk
-- schema
 - table
-- column
-- evidence span
-- provenance metadata
+- repeated block
+- form
+- label-value area
+- summary
+- lookup/reference
+- assumptions/input
+- calculation
+- chart-source area
+- dashboard
+- notes
+- decorative area
 
----
+Persist coordinates and confidence.
 
-## L1 — Metadata Assets
+### Stage 5: Structured extraction and normalization
 
-Examples:
+- Detect headers and multi-row headers.
+- Normalize column names while preserving originals.
+- Infer data types.
+- Preserve units, currencies, and date semantics.
+- Separate transaction rows from subtotals and notes.
+- Normalize repeated blocks.
+- Unpivot matrices when appropriate.
+- Generate Parquet outputs.
+- Generate row-level provenance maps.
 
-- data asset
-- document
-- table
-- column
-- schema relationship
-- owner if supplied
-- tags if supplied
-
----
-
-## L2 — Entity Assets
-
-Examples:
-
-- Supplier
-- Product
-- Contract
-- Customer
-- Organization
-- Person
-- Policy
-- DataProduct
-
-Each entity should include:
-
-```text
-canonical ID
-name
-type
-aliases
-attributes
-source references
-confidence
-```
-
----
-
-## L3 — Relationship Assets
-
-Each relationship should include:
-
-```text
-source entity ID
-target entity ID
-relationship type
-properties
-confidence
-evidence
-source references
-```
-
----
-
-## L4 — Semantic Assets
-
-Examples:
-
-- concepts
-- glossary terms
-- synonyms
-- semantic mappings
-- taxonomy candidates
-- ontology classes
-- concept hierarchy
-
----
-
-## L5 — Contextual Knowledge Assets
-
-Examples:
-
-- facts
-- claims
-- events
-- temporal assertions
-- business rules
-- evidence-linked statements
-
----
-
-# 11. Canonical Pydantic Models
-
-Implement Pydantic domain models under:
-
-```text
-backend/app/domain/
-```
-
-At minimum:
-
-```python
-SourceAsset
-EvidenceReference
-Entity
-Relationship
-Concept
-Fact
-Event
-SemanticMapping
-GraphNodeDefinition
-GraphRelationshipDefinition
-GraphSchema
-QualityIssue
-QualityReport
-KnowledgeAssetPackage
-```
-
-Recommended fields:
-
-```python
-class EvidenceReference(BaseModel):
-    source_id: str
-    source_name: str
-    page: int | None = None
-    section: str | None = None
-    chunk_id: str | None = None
-    excerpt: str | None = None
-```
-
-```python
-class Entity(BaseModel):
-    id: str
-    canonical_name: str
-    entity_type: str
-    aliases: list[str] = []
-    attributes: dict = {}
-    evidence: list[EvidenceReference] = []
-    confidence: float
-    review_status: str = "pending"
-```
-
-```python
-class Relationship(BaseModel):
-    id: str
-    source_entity_id: str
-    target_entity_id: str
-    relationship_type: str
-    properties: dict = {}
-    evidence: list[EvidenceReference] = []
-    confidence: float
-    review_status: str = "pending"
-```
-
-```python
-class QualityReport(BaseModel):
-    overall_score: float
-    evidence_coverage: float
-    average_confidence: float
-    consistency: float
-    completeness: float
-    issues: list[QualityIssue]
-```
-
-```python
-class KnowledgeAssetPackage(BaseModel):
-    package_id: str
-    project_id: str
-    sources: list[SourceAsset]
-    entities: list[Entity]
-    relationships: list[Relationship]
-    concepts: list[Concept]
-    facts: list[Fact]
-    events: list[Event]
-    semantic_mappings: list[SemanticMapping]
-    graph_schema: GraphSchema
-    quality_report: QualityReport
-```
-
-Avoid `Any` unless absolutely required.
-
----
-
-# 12. Structured Output Strategy
-
-All LLM outputs that become application state must be schema-constrained.
-
-Use structured JSON generation wherever possible.
-
-Never parse important business objects from arbitrary prose if a schema can be used.
-
-Examples:
-
-```text
-EntityExtractionResponse
-RelationshipExtractionResponse
-ConceptDiscoveryResponse
-EntityResolutionResponse
-GraphModelResponse
-QualityReviewResponse
-```
-
-Validate every response with Pydantic.
-
-When validation fails:
-
-1. retry with corrective instruction
-2. if retry fails, emit a controlled tool error
-3. let supervisor decide whether to re-plan or stop
-
----
-
-# 13. Model Configuration
+### Stage 6: Formula and dependency analysis
 
 Create:
 
+- Cell-to-cell dependencies
+- Range dependencies
+- Cross-sheet dependencies
+- Named-range dependencies
+- Table-reference dependencies
+- Lookup-based join candidates
+- External-workbook dependencies
+- Formula pattern groups
+- Formula inconsistencies and hard-coded overrides
+- Circular-reference indicators
+- Broken-reference indicators
+
+Convert formulas into:
+
+- Original Excel expression
+- Normalized expression
+- Natural-language business-rule text
+- Inputs
+- Output
+- Formula category
+- Technical lineage
+- Business lineage candidate
+
+Do not claim that formula values were recalculated unless an actual supported calculation engine performed the calculation.
+
+### Stage 7: Visual and multimodal processing
+
+For every image or visual object:
+
+1. Extract the binary asset.
+2. Record sheet, anchor cell, coordinates, and nearby context.
+3. Deduplicate by perceptual or binary hash.
+4. Classify as decorative, screenshot, scanned table, photograph, chart image, process diagram, signature/stamp, document excerpt, or unknown.
+5. Route to OCR, table extraction, or VLM only when useful.
+6. Generate a concise description.
+7. Associate the visual with the nearest relevant record, region, table, form field, or dashboard element.
+8. Create review items for low-confidence interpretations.
+
+Decorative logos should not become embedding chunks by default.
+
+### Stage 8: Semantic asset generation
+
+Generate:
+
+- Workbook summary
+- Sheet summaries
+- Region summaries
+- Table descriptions
+- Column descriptions
+- Record-level semantic text where valuable
+- Formula and rule descriptions
+- Image descriptions
+- Chart summaries
+- Comment/note units
+- Business terms
+- Entity candidates
+- Relationship candidates
+
+The LLM must return validated structured JSON matching Pydantic schemas.
+
+### Stage 9: Validation and reconciliation
+
+Run deterministic checks:
+
+- Extracted row counts
+- Header/data consistency
+- Data type consistency
+- Duplicate records
+- Formula pattern anomalies
+- Broken references
+- Missing external sources
+- Reconstructed totals where feasible
+- Source-to-normalized traceability
+- Every semantic unit has provenance
+- Every graph edge has evidence
+- Every image has a source location
+
+Create component-level confidence scores rather than one opaque score.
+
+### Stage 10: Review queue
+
+Create review items only when action is useful. Examples:
+
+- uncertain header row
+- probable cross-sheet key mapping
+- ambiguous blank-value interpretation
+- possible table boundary
+- uncertain image interpretation
+- missing external dependency
+- conflicting metric definitions
+- suspected hard-coded override
+
+### Stage 11: Package creation
+
+Write the complete package, index its assets, generate a ZIP download, and mark the run completed or needs review.
+
+---
+
+## 12. Agent design
+
+### 12.1 Core rule
+
+The agent does not directly manipulate files or databases. It calls typed tools. Tools perform deterministic actions and return structured results.
+
+### 12.2 Supervisor agent
+
+Responsibilities:
+
+- Read the workbook profile.
+- Select the processing path.
+- Call specialist tools.
+- Request specialist semantic interpretation only where needed.
+- Track unresolved issues.
+- Trigger validation.
+- Produce a concise completion summary.
+
+The supervisor must not:
+
+- Execute arbitrary code.
+- Execute workbook macros.
+- Modify the original workbook.
+- Invent worksheet content.
+- Mark an output as validated without evidence.
+
+### 12.3 Specialist capabilities
+
+Implement these initially as tools plus focused prompts. They may become subagents later.
+
+1. **Structure interpreter**
+   - Determines sheet roles and region meanings from deterministic profile evidence.
+
+2. **Formula and lineage interpreter**
+   - Converts formula graphs into understandable rules and business lineage.
+
+3. **Visual interpreter**
+   - Describes and classifies image assets using the VLM.
+
+4. **Semantic mapper**
+   - Maps fields and assets to business concepts and finds entity/relationship candidates.
+
+5. **Validation reviewer**
+   - Summarizes deterministic validation failures and recommends review actions.
+
+6. **Feedback interpreter**
+   - Converts user feedback into typed processing directives.
+
+### 12.4 Required tool contracts
+
+Create typed tools for:
+
+- `get_workbook_manifest`
+- `get_sheet_profile`
+- `detect_sheet_regions`
+- `extract_region_table`
+- `normalize_table`
+- `get_formula_graph`
+- `get_formula_pattern_anomalies`
+- `get_named_ranges`
+- `get_external_dependencies`
+- `get_visual_assets`
+- `describe_visual_asset`
+- `generate_semantic_units`
+- `infer_entity_candidates`
+- `infer_relationship_candidates`
+- `validate_assets`
+- `create_review_item`
+- `get_previous_run_feedback`
+- `apply_processing_directives`
+- `calculate_impacted_assets`
+- `write_knowledge_package`
+
+Each tool must:
+
+- Validate input with Pydantic.
+- Return structured output.
+- Log duration and status.
+- Be idempotent for the same run and input hash.
+- Store large results in object storage and return references.
+
+### 12.5 Local-model reliability controls
+
+Local models may vary in tool-calling and structured-output quality. Implement:
+
+- JSON schema validation
+- Automatic repair attempt with strict retry limit
+- Maximum agent steps
+- Maximum retries per tool
+- Timeouts
+- Model capability check
+- Fallback structured planning prompt when native tool calls fail
+- Deterministic default processing path if the agent is unavailable
+- No infinite planning or self-reflection loop
+
+The application must still create a partial deterministic package when the LLM is unavailable. Mark semantic stages as incomplete and show a clear status.
+
+---
+
+## 13. Feedback-driven reprocessing
+
+### 13.1 User experience
+
+The user can click **Reprocess** from a workbook or run.
+
+Show a right-side drawer with:
+
+- Free-text feedback
+- Apply to: entire workbook, selected sheets, selected assets, impacted assets
+- Sheet/asset selectors when relevant
+- Preserve confirmed entities and mappings
+- Preserve approved table structures
+- Reprocess only impacted assets
+- Start Reprocessing
+
+### 13.2 Feedback interpretation flow
+
 ```text
-backend/config/models.yaml
+User feedback
+    ↓
+Feedback interpreter
+    ↓
+Typed directives
+    ↓
+User confirmation when directive is ambiguous or destructive
+    ↓
+Impact analysis
+    ↓
+New child run
+    ↓
+Reuse unaffected approved assets
+    ↓
+Reprocess impacted stages
+    ↓
+Validate
+    ↓
+Compare runs
 ```
+
+Example feedback:
+
+```text
+The first two rows in Forecast are titles. Treat row 3 as the header. Customer No and Account ID are the same identifier.
+```
+
+Parsed directives:
+
+```json
+[
+  {
+    "type": "override_header_row",
+    "target": {"sheet_name": "Forecast"},
+    "parameters": {"header_row": 3, "ignore_rows": [1, 2]},
+    "requires_confirmation": false
+  },
+  {
+    "type": "confirm_semantic_mapping",
+    "target": {
+      "source_field": "Orders.Customer No",
+      "target_field": "Customer Master.Account ID"
+    },
+    "parameters": {"enterprise_term": "Customer Identifier"},
+    "requires_confirmation": false
+  }
+]
+```
+
+### 13.3 Impact analysis
+
+Maintain an asset dependency graph. A directive should identify impacted assets.
 
 Example:
 
-```yaml
-lmstudio:
-  base_url: "http://localhost:1234/v1"
-
-models:
-  orchestrator:
-    name: "${LMSTUDIO_ORCHESTRATOR_MODEL}"
-    temperature: 0.2
-
-  knowledge:
-    name: "${LMSTUDIO_KNOWLEDGE_MODEL}"
-    temperature: 0.1
-
-  embedding:
-    name: "${LMSTUDIO_EMBEDDING_MODEL}"
+```text
+Header override on Forecast sheet
+  → Forecast table schema
+  → Forecast records
+  → Formula references using that table
+  → Formula semantic units
+  → Related entities and relationships
+  → Embedding chunks
+  → Validation report
 ```
 
-Do not hardcode a specific model name.
+Do not automatically invalidate unrelated sheets or images.
 
-Allow the same model to be configured for orchestrator and knowledge extraction.
+### 13.4 Run comparison
+
+Compare:
+
+- Tables added, changed, removed
+- Record counts
+- Semantic units
+- Entities
+- Relationships
+- Rules
+- Review items
+- Confidence
+- Applied directives
+
+Allow the user to accept a run as the current version.
 
 ---
 
-# 14. Backend Project Structure
+## 14. API specification
 
-Use this target structure:
+Use `/api/v1` prefix.
 
-```text
-knowledge-graph-builder/
-│
-├── application_screenshot/
-│
-├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   ├── components/
-│   │   ├── features/
-│   │   │   ├── build/
-│   │   │   ├── assets/
-│   │   │   └── graph/
-│   │   ├── hooks/
-│   │   ├── lib/
-│   │   ├── services/
-│   │   ├── types/
-│   │   └── styles/
-│   └── ...
-│
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   ├── agents/
-│   │   ├── domain/
-│   │   ├── providers/
-│   │   ├── repositories/
-│   │   ├── services/
-│   │   ├── storage/
-│   │   ├── tools/
-│   │   ├── orchestration/
-│   │   └── main.py
-│   ├── config/
-│   ├── tests/
-│   └── pyproject.toml
-│
-├── data/
-│   ├── uploads/
-│   ├── processed/
-│   └── artifacts/
-│
-├── .env.example
-├── CODEX.md
-└── README.md
-```
-
----
-
-# 15. Persistence Strategy
-
-Use SQLite for POC application state.
-
-Persist:
+### 14.1 Health and model configuration
 
 ```text
-projects
-sources
-runs
-agent_events
-asset_packages
-review_decisions
-neo4j_publish_history
+GET  /api/v1/health
+GET  /api/v1/models/status
+GET  /api/v1/models
+PUT  /api/v1/models/config
 ```
 
-Large generated package JSON may be stored as files under:
+Model status must show:
+
+- LM Studio reachable
+- Available model identifiers
+- Configured reasoning model
+- Configured vision model
+- Configured embedding model
+- Basic capability check result
+
+### 14.2 Workbooks
 
 ```text
-data/artifacts/
+POST   /api/v1/workbooks
+GET    /api/v1/workbooks
+GET    /api/v1/workbooks/{workbook_id}
+PATCH  /api/v1/workbooks/{workbook_id}
+DELETE /api/v1/workbooks/{workbook_id}
+POST   /api/v1/workbooks/{workbook_id}/runs
 ```
 
-with metadata in SQLite.
+Upload uses multipart form data:
 
-Uploaded files go under:
+- `file`
+- `purpose`
+- `description`
+
+Support pagination, search, and filters.
+
+### 14.3 Runs
 
 ```text
-data/uploads/<project_id>/
+GET  /api/v1/runs
+GET  /api/v1/runs/{run_id}
+GET  /api/v1/runs/{run_id}/events
+POST /api/v1/runs/{run_id}/cancel
+POST /api/v1/runs/{run_id}/retry
+POST /api/v1/runs/{run_id}/accept
+GET  /api/v1/runs/{run_id}/compare/{other_run_id}
 ```
 
-Do not store uploaded binary content in SQLite.
+`/events` uses Server-Sent Events.
 
----
-
-# 16. Core API Design
-
-Use FastAPI.
-
-Base path:
-
-```text
-/api/v1
-```
-
-Implement at minimum:
-
-## Health
-
-```http
-GET /health
-```
-
-Return:
+Event structure:
 
 ```json
 {
-  "api": "ok",
-  "lmstudio": "connected",
-  "neo4j": "connected"
+  "event_id": "evt_001",
+  "run_id": "run_018",
+  "timestamp": "2026-08-21T10:32:00Z",
+  "stage": "formula_analysis",
+  "status": "in_progress",
+  "progress_percent": 46,
+  "message": "Analyzing formulas and cross-sheet dependencies",
+  "details": {
+    "formulas_processed": 1240,
+    "formulas_total": 2418
+  }
 }
 ```
 
----
-
-## Project
-
-```http
-POST /projects
-GET /projects/{project_id}
-```
-
-Project fields:
+### 14.4 Assets
 
 ```text
-name
-knowledge_objective
-processing_mode
-graph_depth
-review_low_confidence
+GET /api/v1/runs/{run_id}/assets
+GET /api/v1/assets/{asset_id}
+GET /api/v1/assets/{asset_id}/preview
+GET /api/v1/assets/{asset_id}/download
+GET /api/v1/runs/{run_id}/package/download
 ```
 
----
+Filters:
 
-## Upload
+- asset type
+- sheet
+- review status
+- confidence range
+- search
 
-```http
-POST /projects/{project_id}/sources
-GET  /projects/{project_id}/sources
-DELETE /projects/{project_id}/sources/{source_id}
-```
-
-Support multipart file upload.
-
-Validate extensions and file size.
-
----
-
-## Generate
-
-```http
-POST /projects/{project_id}/runs
-GET  /projects/{project_id}/runs/{run_id}
-GET  /projects/{project_id}/runs/{run_id}/events
-```
-
-The generate call should return quickly with a run ID.
-
-For POC, background execution can use an in-process FastAPI background task or a simple application task manager.
-
-Do not introduce Celery/Kafka unless necessary.
-
----
-
-## Assets
-
-```http
-GET /projects/{project_id}/assets
-GET /projects/{project_id}/assets/entities
-GET /projects/{project_id}/assets/relationships
-GET /projects/{project_id}/assets/concepts
-GET /projects/{project_id}/assets/facts
-GET /projects/{project_id}/assets/events
-```
-
-Support:
+### 14.5 Review
 
 ```text
-search
-type
-source
-confidence range
-review status
-pagination
+GET  /api/v1/runs/{run_id}/review-items
+POST /api/v1/review-items/{review_item_id}/confirm
+POST /api/v1/review-items/{review_item_id}/correct
+POST /api/v1/review-items/{review_item_id}/reject
+POST /api/v1/review-items/{review_item_id}/ignore
 ```
+
+### 14.6 Feedback and reprocessing
+
+```text
+POST /api/v1/runs/{run_id}/feedback/parse
+POST /api/v1/runs/{run_id}/reprocess
+GET  /api/v1/runs/{run_id}/directives
+```
+
+The parse endpoint returns proposed directives before starting a run when confirmation is required.
 
 ---
 
-## Review
+## 15. UI pages
 
-```http
-POST /projects/{project_id}/assets/{asset_id}/approve
-POST /projects/{project_id}/assets/{asset_id}/review
-POST /projects/{project_id}/assets/{asset_id}/reject
-```
+### 15.1 Shared application shell
 
----
+Left navigation:
 
-## Publication
+- Home
+- My Workbooks
+- Run History
 
-```http
-POST /projects/{project_id}/publish/neo4j
-GET  /projects/{project_id}/publish/status
-```
+Bottom utility links:
 
-Only publish approved assets by default.
+- Feedback
+- Settings
 
----
+Header:
 
-## Graph
+- Workbook Agent logo/name
+- Help icon
+- User avatar or initials
 
-```http
-GET  /projects/{project_id}/graph
-GET  /projects/{project_id}/graph/node/{node_id}
-POST /projects/{project_id}/graph/query
-```
+Do not add a large global header or complex mega-navigation.
 
-Graph endpoint should return Cytoscape-friendly data:
+### 15.2 Home
 
-```json
-{
-  "nodes": [
-    {
-      "data": {
-        "id": "ENT-1",
-        "label": "ACME Corporation",
-        "type": "Supplier"
-      }
-    }
-  ],
-  "edges": [
-    {
-      "data": {
-        "id": "REL-1",
-        "source": "ENT-1",
-        "target": "ENT-2",
-        "label": "HAS_CONTRACT"
-      }
-    }
-  ]
-}
-```
-
----
-
-# 17. Agent Event Streaming
-
-The Build screen displays generation progress.
-
-Preferred implementation:
-
-```text
-Server-Sent Events (SSE)
-```
-
-Endpoint:
-
-```http
-GET /projects/{project_id}/runs/{run_id}/stream
-```
-
-Event payload:
-
-```json
-{
-  "timestamp": "...",
-  "stage": "entity_resolution",
-  "status": "running",
-  "title": "Resolving entities",
-  "message": "3 ambiguous entities found",
-  "event_type": "replan"
-}
-```
-
-Do not send hidden reasoning.
-
-Only send user-safe operational events.
-
-If SSE introduces unnecessary complexity early, polling may be implemented first, then upgraded.
-
----
-
-# 18. Neo4j Integration
-
-Environment variables:
-
-```text
-NEO4J_URI=
-NEO4J_USERNAME=
-NEO4J_PASSWORD=
-NEO4J_DATABASE=neo4j
-```
-
-Use a provider/service abstraction:
-
-```python
-class GraphStore:
-    async def health_check(...)
-    async def publish_package(...)
-    async def get_subgraph(...)
-    async def get_node(...)
-    async def query(...)
-```
-
-Implementation:
-
-```text
-Neo4jGraphStore
-```
-
-Do not call Neo4j directly inside agents.
-
-Agents may use graph tools that delegate to GraphStore.
-
----
-
-# 19. Neo4j Publication Rules
-
-Use stable canonical identifiers.
-
-Prefer MERGE patterns.
-
-Example conceptual behavior:
-
-```cypher
-MERGE (n:Supplier {asset_id: $asset_id})
-SET
-    n.name = $name,
-    n.confidence = $confidence,
-    n.project_id = $project_id
-```
-
-Relationship:
-
-```cypher
-MATCH (a {asset_id: $source_id})
-MATCH (b {asset_id: $target_id})
-MERGE (a)-[r:HAS_CONTRACT {asset_id: $relationship_id}]->(b)
-SET r.confidence = $confidence
-```
-
-Do not create arbitrary relationship types directly from untrusted strings without sanitizing/whitelisting them.
-
-Maintain publication metadata.
-
-Do not delete existing graph data automatically.
-
----
-
-# 20. Frontend Application Shell
-
-Match the screenshots.
-
-Desktop-first POC.
-
-Target working width:
-
-```text
-1440–1600 px
-```
-
-Must still remain usable at smaller laptop widths.
-
-Layout:
-
-```text
-Top Header
-├── App Logo / Name
-├── LM Studio status
-├── Neo4j Aura status
-└── Settings
-
-Left Navigation
-├── Build
-├── Graph Assets
-└── Graph Explorer
-
-Main Content
-└── active page
-```
-
-Keep the left navigation narrow.
-
-No excessive tabs.
-
----
-
-# 21. Design Language
-
-Follow `application_screenshot/`.
-
-Primary feel:
-
-```text
-clean
-minimal
-enterprise
-light
-technical
-high information density without clutter
-```
-
-Use:
-
-- white / near-white surfaces
-- subtle gray borders
-- restrained purple/indigo primary accent matching screenshots
-- green for healthy/approved status
-- orange/amber for review
-- red/pink only for warnings/attention
-- small subtle shadows only where visible in screenshots
-
-Do not use:
-
-- gradients unless present in screenshots
-- glassmorphism
-- excessive animation
-- huge hero headings
-- dark developer-dashboard aesthetics
-- chat-first interface
-- oversized cards
-- unnecessary decorative graphs
-
----
-
-# 22. Typography
-
-Use a modern sans-serif consistent with screenshots.
-
-Preferred:
-
-```text
-Inter
-```
-
-Fallback:
-
-```text
-system-ui
--apple-system
-BlinkMacSystemFont
-Segoe UI
-sans-serif
-```
-
-Approximate scale:
-
-```text
-App title:           18–20 px
-Page title:          22–26 px
-Section title:       14–16 px
-Body:                13–14 px
-Secondary text:      11–12 px
-Table text:          12–13 px
-Metric values:       18–22 px
-Buttons:             12–14 px
-```
-
-Avoid excessively bold typography.
-
----
-
-# 23. Spacing and Shape
-
-Approximate rules:
-
-```text
-Page padding:        24 px
-Card padding:        16–20 px
-Grid gap:            12–16 px
-Section gap:         16–24 px
-
-Small radius:        6–8 px
-Card radius:         10–12 px
-Button radius:       6–8 px
-```
-
-Borders:
-
-```text
-1px light gray
-```
-
-The application should appear crisp rather than heavily rounded.
-
----
-
-# 24. Screen 1 — Build
-
-Reference the Build screenshot.
-
-Purpose:
-
-```text
-Define objective
-Upload sources
-Configure run
-Generate graph assets
-Observe latest generation
-```
+Match `01-home.png`.
 
 Main content:
 
-## Left / Primary builder area
-
-### 1. Define Knowledge Objective
-
-Large textarea.
-
-Example default demo objective:
-
-```text
-Understand suppliers, contracts, products and contractual obligations.
-```
-
-Helper text:
-
-```text
-This helps the agent determine what to extract and how to model your knowledge.
-```
-
----
-
-### 2. Upload Sources
-
-Two adjacent upload cards:
-
-```text
-Structured Data
-Unstructured Data
-```
-
-Structured:
-
-```text
-Upload Schema
-.sql .json .csv
-```
-
-Unstructured:
-
-```text
-Upload Files
-.pdf .docx .png .jpg
-```
-
-Below them show uploaded source list.
-
-Each file should show:
-
-```text
-filename
-summary
-source category
-status
-remove action
-```
-
----
-
-### 3. Run Configuration
-
-Controls:
-
-```text
-Processing Mode
-Graph Depth
-Review Low Confidence
-Max Tokens
-```
-
-Processing mode:
-
-```text
-Auto
-Structured
-Unstructured
-Hybrid
-```
-
-Graph depth:
-
-```text
-Metadata
-Entity + Relationships
-Semantic
-Contextual Knowledge
-```
-
-Primary CTA:
-
-```text
-Generate Graph Assets
-```
-
----
-
-## Right / Run summary area
-
-When no run exists, show a clean empty-state.
-
-After generation show:
-
-```text
-Entities
-Relationships
-Concepts
-Facts
-Quality Score
-```
-
-Generation Progress:
-
-```text
-Analyzing sources
-Discovering concepts
-Extracting entities
-Extracting relationships
-Resolving entities
-Validating assets
-```
-
-Quality Overview:
-
-```text
-Evidence Coverage
-Confidence Avg.
-Consistency
-Completeness
-Overall Quality
-```
-
-Recent Runs may show the latest few runs inside the Build page.
-
-Do not create a separate Jobs tab.
-
----
-
-# 25. Screen 2 — Graph Assets
-
-Reference the approved Graph Assets screenshot.
-
-Purpose:
-
-```text
-Review
-Filter
-Inspect evidence
-Approve
-Send to review
-Publish
-```
-
-Top metric cards:
-
-```text
-Entities
-Relationships
-Concepts
-Facts
-Quality Score
-```
-
-Primary asset tabs:
-
-```text
-Entities
-Relationships
-Concepts
-Facts
-Events
-```
-
-Asset table filters:
-
-```text
-Search
-Type
-Source
-Confidence
-Review Status
-```
-
-Table should support pagination.
-
-Typical columns:
-
-```text
-Asset Name
-Type
-Source
-Confidence
-Status
-Actions
-```
-
-Status examples:
-
-```text
-Approved
-Review
-Needs Attention
-Pending
-Rejected
-```
-
----
-
-## Selected Asset Panel
-
-Right-side details panel.
-
-For an Entity:
-
-```text
-Canonical Name
-Type
-Aliases
-Sources
-Confidence
-Relationships
-Evidence References
-```
-
-Evidence references should show:
-
-```text
-file
-page/section/table/column
-```
-
-Quick actions:
-
-```text
-Approve
-Send to Review
-Reject if required
-```
-
----
-
-## Validation and Publication
-
-Bottom summary:
-
-```text
-Evidence Coverage
-Confidence Avg.
-Consistency
-Completeness
-```
-
-Primary action:
-
-```text
-Publish Approved Assets to Neo4j
-```
-
-Publishing should not automatically include unapproved assets.
-
----
-
-# 26. Screen 3 — Graph Explorer
-
-Reference the Graph Explorer screenshot.
-
-Purpose:
-
-```text
-Explore Neo4j graph
-Search
-Filter
-Traverse
-Inspect nodes
-Inspect evidence
-```
-
-Main toolbar:
-
-```text
-Search nodes / relationships / properties
-Node Types
-Relationship Types
-Depth
-Clear Filters
-```
-
-Optional action:
-
-```text
-Open in Neo4j Browser
-```
-
----
-
-## Left graph-side utilities
-
-Graph Overview:
-
-```text
-Nodes
-Relationships
-Node Types
-Relationship Types
-```
-
-Legend by node type.
-
-Basic control guidance:
-
-```text
-Drag
-Pan
-Scroll / Zoom
-Click / Select Node
-Box select if supported
-Reset View
-```
-
----
-
-## Main graph canvas
-
-Use Cytoscape.js.
-
-Must support:
-
-```text
-pan
-zoom
-fit
-node selection
-edge selection
-node-type styles
-edge labels
-search highlight
-filter
-depth-based traversal
-re-layout
-```
-
-Use restrained node colors by semantic category.
-
-Example categories:
-
-```text
-Supplier
-Contract
-Product
-Obligation
-Document
-Other
-```
-
-Do not hardcode these as the only possible types.
-
-Generate deterministic color assignments by node type.
-
----
-
-## Right Node Details Panel
+- Title: `Process your Excel workbook`
+- Short explanation
+- Large drag-and-drop upload area
+- Supported-format text
+- Browse Files button
+- Purpose dropdown
+- Optional description
+- Analyze Workbook button
+- Recent Workbooks table
+- Small four-step “How it works” strip
+
+Upload interaction:
+
+1. Drop or browse a file.
+2. Display file name, size, and remove action.
+3. Purpose defaults to `Knowledge extraction / Entity & relationship`.
+4. User clicks Analyze Workbook.
+5. Create workbook and initial run.
+6. Navigate to run detail/processing state.
+
+### 15.3 My Workbooks
+
+Match `02-my-workbooks.png`.
+
+Purpose: permanent workbook library.
+
+Show:
+
+- Search
+- Filters: All, Completed, Needs Review, Processing, Failed
+- Upload Workbook button
+- Minimal summary cards only if present in the screenshot
+- Workbook table
+
+Columns:
+
+- Workbook
+- Purpose
+- Last Run
+- Status
+- Confidence
+- Actions
+
+Each workbook appears once. Clicking a row opens the workbook detail.
+
+Actions menu:
+
+- Open
+- Reprocess
+- Download latest package
+- View runs
+- Archive
+
+### 15.4 Run History
+
+Match `03-run-history.png`.
+
+Purpose: audit trail of processing attempts.
+
+Show:
+
+- Search
+- Status filters
+- Sort dropdown
+- Minimal run summary
+- Recent Runs table
+- Selected-run side panel on desktop
+
+Columns:
+
+- Run ID
+- Workbook
+- Started
+- Duration
+- Status
+- Output
+- Actions
+
+Selected-run panel:
+
+- Run ID
+- Workbook
+- Purpose
+- Trigger
+- Status
+- Confidence
+- Output count
+- Feedback summary when applicable
+- View Output button
+- Re-run button
+
+### 15.5 Workbook detail
+
+Keep this screen simpler than the earlier heavy dashboard concept.
+
+Header:
+
+- Workbook name
+- Latest status
+- Confidence
+- Last processed time
+- Download Package
+- Reprocess
 
 Tabs:
 
-```text
-Overview
-Properties
-Relationships
-Evidence
-```
+- Overview
+- Output Assets
+- Review
+- Runs
 
-Overview:
+#### Overview
 
-```text
-name
-labels/type
-confidence
-description
-sources
-relationship summary
-```
+Show only:
 
-Evidence:
+- Plain-language workbook understanding
+- Workbook type and purpose
+- Key structural facts
+- Simple inferred flow such as `Source Data → Assumptions → Forecast → Dashboard`
+- Current run status
+- Primary unresolved issues
 
-```text
-source file
-page
-section
-chunk/table/column if available
-```
+Do not use more than four small metric cards.
 
----
+#### Output Assets
 
-## Cypher Panel
+Use grouped, collapsible sections:
 
-Provide an optional advanced panel at the bottom:
+- Normalized datasets
+- Semantic and embedding units
+- Entities and relationships
+- Formula and lineage assets
+- Visual assets
+- Quality report
 
-```text
-Cypher
-Template Queries
-```
+Each item has Preview and Download actions.
 
-For POC, user-written Cypher should be read-only by default.
+#### Review
 
-Reject dangerous write keywords from the custom query endpoint unless an explicit developer configuration enables writes.
+List open review items as simple cards with evidence and actions.
 
-Safe examples:
+#### Runs
 
-```text
-MATCH
-RETURN
-WHERE
-LIMIT
-WITH
-UNWIND
-OPTIONAL MATCH
-```
+List all runs for this workbook and support comparison.
 
-Do not expose credentials to the frontend.
+### 15.6 Processing state
 
----
-
-# 27. Frontend State
-
-Use straightforward state management.
-
-Preferred initial approach:
-
-```text
-React Query / TanStack Query for server state
-React local state for UI state
-```
-
-Do not add Redux unless complexity proves it is required.
-
-Keep types under:
-
-```text
-frontend/src/types/
-```
-
-Generate API types manually or from OpenAPI if convenient.
-
----
-
-# 28. Loading and Empty States
-
-Every page must have good states.
-
-Examples:
-
-Build:
-
-```text
-No sources uploaded
-Ready to generate
-Agent running
-Generation failed
-Generation complete
-```
-
-Graph Assets:
-
-```text
-No package generated
-No assets match filter
-Assets awaiting review
-All approved
-```
-
-Graph Explorer:
-
-```text
-Nothing published yet
-Neo4j disconnected
-Graph loading
-No results for current filters
-```
-
-Avoid blank areas.
-
----
-
-# 29. Error Handling
-
-User-facing errors must be concise.
-
-Examples:
-
-```text
-LM Studio is not reachable.
-Start the LM Studio local server and retry.
-```
-
-```text
-Neo4j Aura connection failed.
-Check the configured Aura credentials.
-```
-
-```text
-This PDF could not be parsed reliably.
-The agent will retry using OCR.
-```
-
-Backend errors should include internal details in logs but not expose secrets.
-
----
-
-# 30. Security Rules for POC
-
-Even though this is local:
-
-- use `.env`
-- never commit secrets
-- never log Neo4j password
-- never expose LM Studio internal prompt history unnecessarily
-- sanitize filenames
-- enforce upload size limit
-- validate file extension and MIME type
-- sanitize Neo4j label and relationship identifiers
-- custom Cypher should default to read-only
-- do not execute uploaded SQL
-- parse DDL as text only
-
----
-
-# 31. Environment File
-
-Create:
-
-```text
-.env.example
-```
-
-Containing:
-
-```text
-APP_ENV=development
-
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
-LMSTUDIO_ORCHESTRATOR_MODEL=
-LMSTUDIO_KNOWLEDGE_MODEL=
-LMSTUDIO_EMBEDDING_MODEL=
-
-NEO4J_URI=
-NEO4J_USERNAME=
-NEO4J_PASSWORD=
-NEO4J_DATABASE=neo4j
-
-DATABASE_URL=sqlite:///./data/app.db
-
-UPLOAD_DIR=./data/uploads
-ARTIFACT_DIR=./data/artifacts
-
-LOW_CONFIDENCE_THRESHOLD=0.80
-AUTO_APPROVE_THRESHOLD=0.95
-MAX_UPLOAD_MB=50
-```
-
----
-
-# 32. Quality Rules
-
-Initial configurable POC defaults:
-
-```text
->= 0.95
-High confidence
-eligible for auto-approval if review policy permits
-
-0.80–0.95
-Review recommended
-
-< 0.80
-Needs attention
-```
-
-Do not use confidence alone as the only graph quality measure.
-
-Quality should include:
-
-```text
-evidence coverage
-confidence
-consistency
-completeness
-duplicate rate
-unresolved references
-```
-
----
-
-# 33. Human-in-the-Loop
-
-HITL is intentionally lightweight.
-
-If:
-
-```text
-Review Low Confidence = ON
-```
-
-then low-confidence assets should be marked:
-
-```text
-Review
-or
-Needs Attention
-```
-
-Do not block the entire run because one asset needs review.
-
-The run can complete with review items.
-
-Publication should publish approved assets.
-
----
-
-# 34. Source Provenance
-
-Every material graph asset must retain provenance.
-
-At minimum:
-
-Structured:
-
-```text
-source file
-table
-column
-schema relationship
-```
-
-Unstructured:
-
-```text
-source file
-page if available
-section if available
-chunk or excerpt if available
-```
-
-Hybrid relationships may carry multiple evidence references.
-
-This is a critical POC capability.
-
----
-
-# 35. Entity Resolution
-
-Implement a pragmatic tiered strategy.
-
-Possible sequence:
-
-```text
-1. exact normalized name match
-2. alias match
-3. deterministic similarity
-4. embedding similarity if available
-5. LLM-assisted adjudication
-6. human review for ambiguity
-```
-
-Do not use the LLM for every obvious duplicate.
-
-Store resolution evidence.
-
----
-
-# 36. Graph Generation Principles
-
-Avoid creating one node for every chunk by default.
-
-Distinguish:
-
-```text
-knowledge entity nodes
-semantic/concept nodes
-source/evidence nodes
-```
-
-Evidence may be stored either as graph nodes or external properties/records depending on the graph model.
-
-For POC, prioritize graph readability.
-
-The graph should visually demonstrate enterprise meaning, not become a raw document-chunk graph.
-
----
-
-# 37. Observability
-
-Use standard Python logging.
-
-Persist high-level run events.
-
-Capture:
-
-```text
-run start/end
-agent stage
-tool invocation
-tool success/failure
-re-plan event
-asset counts
-quality metrics
-publish event
-```
-
-Do not log hidden model reasoning.
-
-Do not build a full observability platform.
-
----
-
-# 38. Testing
-
-Backend:
-
-```text
-pytest
-```
-
-Frontend:
-
-```text
-Vitest
-React Testing Library
-```
-
-Minimum backend tests:
-
-- DDL parser
-- schema JSON parser
-- PDF parser smoke test
-- entity model validation
-- relationship model validation
-- knowledge package validation
-- confidence rules
-- Neo4j mapping
-- graph query sanitization
-- agent tool registration
-- failed structured output retry
-
-Minimum API tests:
-
-- create project
-- upload file
-- start run
-- retrieve run
-- retrieve assets
-- approve asset
-- publish
-- graph retrieval
-
-Frontend smoke tests:
-
-- navigation
-- upload list rendering
-- generate action
-- metric rendering
-- asset filter
-- selected asset drawer/panel
-- graph page empty state
-- graph node details rendering
-
----
-
-# 39. Seed Demo Data
-
-Create a small demo dataset for development.
-
-Use generic fictional data.
+Show a clean vertical stage list, not an architecture diagram.
 
 Example:
 
 ```text
-supplier_schema.sql
-contracts.pdf or a generated text-equivalent fixture
-product_catalog.docx or fixture
+✓ Workbook inspected
+✓ Sheets and regions identified
+● Analyzing formulas and relationships
+○ Processing images and charts
+○ Creating normalized knowledge assets
+○ Validating outputs
 ```
 
-Concepts:
+Show current stage, short activity text, progress bar, cancel action, and optional technical log drawer.
+
+### 15.7 Reprocess drawer
+
+Fields:
+
+- Feedback textarea
+- Apply feedback to
+- Sheet or asset selector
+- Preserve confirmed mappings
+- Preserve approved structures
+- Reprocess only impacted assets
+- Start Reprocessing
+
+After parsing feedback, show the interpreted directives in plain language when confirmation is required.
+
+---
+
+## 16. State and interaction rules
+
+- Every async action must show loading, success, and error states.
+- Tables must support empty states.
+- Upload must display validation errors clearly.
+- Processing progress must recover after page refresh by reconnecting to SSE and fetching run state.
+- No optimistic success for processing or review actions.
+- Review actions should invalidate relevant TanStack Query caches.
+- Use accessible labels and keyboard focus states.
+- Use status pill colors consistently:
+  - completed: green
+  - needs review: amber
+  - processing: blue or neutral active
+  - failed: red
+  - queued: gray
+- Avoid modals for long feedback forms; use a side drawer.
+
+---
+
+## 17. LM Studio integration
+
+### 17.1 Environment variables
+
+Create `.env.example`:
+
+```bash
+APP_ENV=development
+API_HOST=0.0.0.0
+API_PORT=8000
+DATABASE_URL=sqlite:///./data/workbook_agent.db
+REDIS_URL=redis://localhost:6379/0
+STORAGE_ROOT=./data/storage
+MAX_UPLOAD_MB=200
+
+AGENT_FRAMEWORK=deepagents
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LM_STUDIO_API_KEY=lm-studio
+LLM_REASONING_MODEL=
+LLM_VISION_MODEL=
+EMBEDDING_MODEL=
+LLM_TEMPERATURE=0.1
+LLM_REQUEST_TIMEOUT_SECONDS=120
+LLM_MAX_RETRIES=2
+AGENT_MAX_STEPS=20
+
+ENABLE_OCR=true
+OCR_PROVIDER=paddleocr
+ENABLE_VISION=true
+ENABLE_EMBEDDINGS=true
+ENABLE_ENTITY_EXTRACTION=true
+ENABLE_GRAPH_ASSETS=true
+```
+
+When running the backend inside Docker on macOS or Windows, document the use of:
 
 ```text
-Supplier
-Contract
-Product
-Obligation
-Document
+http://host.docker.internal:1234/v1
 ```
 
-Sample entities:
+### 17.2 Model registry
 
-```text
-ACME Corporation
-Contract 1032
-Product X
-Master Supply Agreement
-Payment Obligation
-```
+At startup:
 
-This should reproduce the visual examples from screenshots without depending on real client data.
+1. Call the model-list endpoint.
+2. Validate configured model names.
+3. Store a capability snapshot.
+4. Expose status through the API.
+5. Do not fail the entire backend if LM Studio is offline.
 
----
+### 17.3 Structured output
 
-# 40. Build Sequence for Codex
-
-Do not attempt to build the entire application in one uncontrolled pass.
-
-Follow these milestones.
-
----
-
-## Milestone 0 — Inspect and Plan
-
-Before coding:
-
-1. inspect `application_screenshot/`
-2. inspect current repository
-3. identify screenshot-to-screen mapping
-4. identify existing code that can be reused
-5. produce a short implementation plan
-6. do not modify screenshots
-
----
-
-## Milestone 1 — Application Skeleton
-
-Build:
-
-- frontend shell
-- backend FastAPI shell
-- three navigation routes
-- header status indicators
-- common design tokens
-- `.env.example`
-- health endpoint
-- basic README run instructions
-
-Acceptance:
-
-```text
-Frontend loads.
-Backend loads.
-Build / Graph Assets / Graph Explorer navigation works.
-UI visually resembles screenshots.
-```
-
----
-
-## Milestone 2 — Build Screen
+All LLM responses used by the pipeline must be parsed into Pydantic models.
 
 Implement:
 
-- knowledge objective
-- source upload cards
-- uploaded file list
-- run configuration
-- generate button
-- backend project/upload APIs
-- local filesystem storage
-- SQLite project/source metadata
+- schema-first prompts
+- strict JSON extraction
+- one repair attempt
+- fallback error object
+- raw-response storage for debugging, with workbook-sensitive logs disabled by default
 
-Use mocked run results initially if needed.
+### 17.4 Vision prompts
 
-Acceptance:
+Send:
 
-```text
-Files upload successfully.
-File list updates.
-Project config persists.
-Screen matches approved screenshot closely.
-```
+- cropped image or embedded image
+- sheet name
+- anchor range
+- nearest headers and row context
+- requested classification schema
 
----
+Do not send the entire workbook context with every image.
 
-## Milestone 3 — Domain Models and Parsers
+### 17.5 Embedding abstraction
+
+Create an `EmbeddingProvider` protocol.
 
 Implement:
 
-- Pydantic graph asset models
-- DDL/schema parsers
-- PDF
-- DOCX
-- image/OCR fallback
-- normalized source representation
+- `LMStudioEmbeddingProvider`
+- optional `SentenceTransformersEmbeddingProvider`
+- `NoOpEmbeddingProvider` for tests
 
-Acceptance:
-
-```text
-Uploaded sources can be parsed into typed normalized representations.
-```
+Store embeddings outside the main relational database. For MVP, write vectors to a local file or a small local vector store only after canonical chunks are created. The package must remain usable without a vector database.
 
 ---
 
-## Milestone 4 — LM Studio Provider
+## 18. Storage and privacy
 
-Implement:
+### 18.1 Local object storage
 
-- provider abstraction
-- health check
-- standard chat
-- structured generation
-- embeddings if an embedding model is configured
+Use a filesystem implementation with an interface compatible with later S3 storage.
 
-Acceptance:
+Paths:
 
 ```text
-Backend can reach LM Studio.
-Structured response validates against Pydantic schema.
-Model configuration is externalized.
+data/storage/workbooks/{workbook_id}/original/{filename}
+data/storage/workbooks/{workbook_id}/runs/{run_id}/intermediate/
+data/storage/workbooks/{workbook_id}/runs/{run_id}/package/
+data/storage/workbooks/{workbook_id}/runs/{run_id}/logs/
 ```
+
+### 18.2 Privacy
+
+- Do not log cell values or image text by default.
+- Log asset IDs, counts, ranges, stage names, durations, and errors.
+- Provide a development-only flag for detailed diagnostic logs.
+- Never send data outside LM Studio/local services unless a future connector is explicitly configured.
+
+### 18.3 Safety
+
+- Static-inspect macros; never execute them.
+- Sanitize filenames.
+- Prevent path traversal.
+- Enforce file-size limits.
+- Store uploads outside the web root.
+- Validate archive expansion limits to mitigate zip bombs.
+- Do not render untrusted HTML from workbook cells.
+- Escape formula-like values when exporting CSV previews.
 
 ---
 
-## Milestone 5 — Knowledge Extraction Tools
+## 19. Observability
 
-Implement:
+Every run must record:
 
-- concept discovery
-- entity extraction
-- relationship extraction
-- fact extraction
-- event extraction
-- semantic mapping
-- entity resolution
+- stage start/end
+- tool invocation
+- duration
+- input/output asset references
+- deterministic or model-based method
+- model ID
+- token/latency metrics when available
+- warning/error
+- retry count
+- confidence contribution
 
-Acceptance:
+Create a technical-log endpoint but keep it hidden behind `View Technical Log` in the UI.
 
-```text
-A small source set produces a valid KnowledgeAssetPackage.
-Every accepted extracted asset contains provenance and confidence.
-```
+Use correlation IDs:
 
----
-
-## Milestone 6 — Agentic Orchestration
-
-Implement:
-
-```text
-Deep Agents supervisor
-Source Analyst subagent
-Knowledge Engineer subagent
-Graph Modeller subagent
-Quality Reviewer subagent
-LangGraph state / run loop
-```
-
-Implement at least one re-plan path.
-
-Acceptance:
-
-```text
-Different source modality produces different plan/tool usage.
-A validation problem can trigger retry/re-plan.
-Run events are visible to the UI.
-```
+- `request_id`
+- `workbook_id`
+- `run_id`
+- `stage_id`
+- `tool_call_id`
 
 ---
 
-## Milestone 7 — Graph Assets Screen
+## 20. Error handling
 
-Implement:
+Use typed error codes:
 
-- metric cards
-- asset tabs
-- filters
-- table
-- pagination
-- selected asset panel
-- evidence view
-- approve/review actions
-- quality summary
+- `UNSUPPORTED_FILE_TYPE`
+- `FILE_TOO_LARGE`
+- `ENCRYPTED_WORKBOOK`
+- `CORRUPT_WORKBOOK`
+- `UNSAFE_ARCHIVE`
+- `PARSER_FAILURE`
+- `UNSUPPORTED_WORKBOOK_FEATURE`
+- `LM_STUDIO_UNAVAILABLE`
+- `MODEL_NOT_CONFIGURED`
+- `MODEL_STRUCTURED_OUTPUT_FAILURE`
+- `VISION_PROCESSING_FAILURE`
+- `JOB_QUEUE_UNAVAILABLE`
+- `PROCESSING_CANCELLED`
+- `PACKAGE_WRITE_FAILURE`
 
-Acceptance:
+Show business-friendly messages and preserve technical details for logs.
+
+The pipeline should support partial completion. For example, deterministic extraction can complete even if semantic interpretation fails.
+
+---
+
+## 21. Testing strategy
+
+### 21.1 Test workbook fixtures
+
+Create synthetic workbooks under `backend/tests/fixtures/workbooks/`:
+
+1. `01_clean_table.xlsx`
+   - one clean table
+
+2. `02_multiple_sheets.xlsx`
+   - customer, orders, and reference sheets
+   - cross-sheet lookup
+
+3. `03_multiple_tables_one_sheet.xlsx`
+   - unrelated tables and notes
+
+4. `04_multirow_headers.xlsx`
+   - merged and hierarchical headers
+
+5. `05_repeated_blocks.xlsx`
+   - one block per region
+
+6. `06_form_layout.xlsx`
+   - label-value fields
+
+7. `07_formula_model.xlsx`
+   - inputs, calculations, outputs
+   - cross-sheet formulas
+
+8. `08_hidden_sheets.xlsx`
+   - hidden reference and calculation sheets
+
+9. `09_images.xlsx`
+   - logo, screenshot, scanned table, and record-linked photograph
+
+10. `10_charts.xlsx`
+    - charts with source ranges
+
+11. `11_external_links.xlsx`
+    - inaccessible external workbook reference
+
+12. `12_macro_enabled.xlsm`
+    - macro present but never executed
+
+13. `13_formula_errors.xlsx`
+    - `#REF!`, inconsistent formulas, hard-coded override
+
+14. `14_complex_combined.xlsx`
+    - multi-sheet, formulas, images, charts, notes, and repeated blocks
+
+### 21.2 Golden outputs
+
+For important fixtures, store expected:
+
+- workbook manifest
+- sheet/region structure
+- normalized table schema
+- formula edges
+- image locations
+- review issues
+- package manifest
+
+Golden tests must ignore non-deterministic IDs and timestamps.
+
+### 21.3 Unit tests
+
+Cover:
+
+- file validation
+- hashing
+- workbook manifest creation
+- sheet visibility
+- merged-header normalization
+- region detection rules
+- formula tokenization
+- cross-sheet reference extraction
+- visual-anchor extraction
+- content-unit generation
+- provenance generation
+- directive parsing validation
+- impact analysis
+- confidence aggregation
+
+### 21.4 Integration tests
+
+Cover:
+
+- upload to completed deterministic package
+- queued run lifecycle
+- SSE progress
+- model unavailable fallback
+- feedback to child run
+- asset reuse during incremental reprocessing
+- package download
+- run comparison
+
+### 21.5 Frontend tests
+
+Cover:
+
+- upload validation
+- file drop
+- workbook filters
+- run filters
+- progress reconnection
+- review action flow
+- reprocess drawer
+- run comparison
+- empty and error states
+
+### 21.6 End-to-end acceptance flow
+
+1. Upload `14_complex_combined.xlsx`.
+2. Select knowledge extraction.
+3. Start analysis.
+4. Observe stage progress.
+5. Open output.
+6. Preview a normalized table.
+7. Preview a visual asset.
+8. Resolve one review item.
+9. Enter feedback changing a header row and field mapping.
+10. Start impacted-assets reprocessing.
+11. Compare runs.
+12. Accept the latest run.
+13. Download the package.
+
+---
+
+## 22. Acceptance criteria
+
+The MVP is complete when:
+
+1. The three main screens visually match the supplied screenshots closely.
+2. A user can upload a supported workbook from Home.
+3. The workbook appears once in My Workbooks.
+4. Every processing attempt appears in Run History.
+5. Processing runs asynchronously and exposes recoverable progress.
+6. The system generates a manifest, normalized tables, semantic units, embedding chunks, graph nodes/edges, media assets, and a quality report.
+7. Images are extracted, located, classified, and linked to nearby workbook context.
+8. Formulas generate dependency edges and human-readable business-rule candidates.
+9. Every generated asset has provenance.
+10. Low-confidence findings create review items.
+11. Natural-language feedback is converted into structured directives.
+12. A feedback rerun creates a child run and reuses unaffected approved assets.
+13. The user can compare runs and accept the preferred version.
+14. The complete package can be downloaded as a ZIP.
+15. The application works when LM Studio is online.
+16. Deterministic extraction still works with a clear degraded status when LM Studio is offline.
+17. Macros are never executed.
+18. Automated tests cover the core flow.
+
+---
+
+## 23. Implementation sequence for Codex
+
+Implement in this order. Do not jump directly into agent prompts before the domain model and deterministic processing are stable.
+
+### Phase 1: Scaffold
+
+- Create monorepo.
+- Configure frontend, backend, database, Redis, linting, formatting, tests, and Docker Compose.
+- Add `.env.example`.
+- Add health endpoints.
+
+### Phase 2: UI shell and screenshot-faithful screens
+
+- Build shared shell.
+- Build Home.
+- Build My Workbooks.
+- Build Run History.
+- Use mocked typed API data temporarily.
+- Add responsive behavior.
+
+### Phase 3: Persistence and upload flow
+
+- Implement database models and migrations.
+- Implement local object storage.
+- Implement workbook upload.
+- Implement workbook list and run list.
+- Connect UI to real APIs.
+
+### Phase 4: Job queue and run lifecycle
+
+- Implement RQ worker.
+- Implement stage state machine.
+- Implement SSE events.
+- Build processing screen.
+
+### Phase 5: Deterministic workbook processing
+
+- File safety and manifest.
+- Sheets, tables, formulas, named ranges, images, charts, comments, and links.
+- Region and table normalization.
+- Canonical package writer.
+- Golden tests.
+
+### Phase 6: LM Studio and agent runtime
+
+- Model registry.
+- Reasoning, vision, and embedding adapters.
+- Deep Agents runtime adapter.
+- Supervisor and typed tools.
+- Structured semantic outputs.
+- Degraded-mode behavior.
+
+### Phase 7: Review and feedback
+
+- Review item APIs and UI.
+- Feedback drawer.
+- Feedback interpreter.
+- Processing directives.
+- Impact analysis.
+- Incremental child runs.
+
+### Phase 8: Outputs and comparison
+
+- Workbook detail.
+- Asset previews.
+- Package download.
+- Run comparison.
+- Accept current version.
+
+### Phase 9: Hardening
+
+- Security checks.
+- Error states.
+- Performance profiling.
+- E2E tests.
+- Documentation.
+
+---
+
+## 24. Codex working rules
+
+1. Read this file and all screenshots before coding.
+2. Create a short implementation checklist in the repository and update it as work progresses.
+3. Prefer small, testable modules.
+4. Keep UI components under roughly 250 lines when practical.
+5. Keep API route handlers thin.
+6. Put business logic in services and processing modules.
+7. Use typed schemas end to end.
+8. Never store large workbook content directly in relational database columns.
+9. Never execute workbook macros.
+10. Never rely on the LLM for facts a deterministic parser can provide.
+11. Validate every model output.
+12. Preserve provenance throughout transformations.
+13. Do not add features outside this specification until the core flow is complete.
+14. Do not over-design the UI.
+15. Run formatting, linting, unit tests, integration tests, and frontend tests before marking a phase complete.
+16. When a library cannot expose a workbook feature, document the limitation and emit a review/quality item instead of silently dropping it.
+17. Keep the application usable without cloud accounts.
+18. Create clear README instructions for starting LM Studio, Redis, backend, worker, and frontend.
+
+---
+
+## 25. Developer commands
+
+Provide a `Makefile` with at least:
 
 ```text
-Generated package is browsable.
-Review state persists.
-Evidence is inspectable.
-UI matches screenshot.
+make install
+make dev
+make backend
+make worker
+make frontend
+make redis
+make test
+make test-backend
+make test-frontend
+make lint
+make format
+make create-fixtures
+make seed-demo
+make verify-lmstudio
 ```
 
----
-
-## Milestone 8 — Neo4j Aura
-
-Implement:
-
-- connection health
-- graph store abstraction
-- package-to-Neo4j mapping
-- safe MERGE publication
-- publish-approved-only behavior
-- publication history
-
-Acceptance:
+Recommended local startup:
 
 ```text
-Approved package publishes to configured Aura instance.
-Re-publishing does not create obvious duplicate canonical nodes.
+Terminal 1: LM Studio local server
+Terminal 2: make redis
+Terminal 3: make backend
+Terminal 4: make worker
+Terminal 5: make frontend
 ```
+
+Docker Compose may run the database, Redis, backend, worker, and frontend, but LM Studio is expected to run on the host machine.
 
 ---
 
-## Milestone 9 — Graph Explorer
+## 26. README requirements
 
-Implement:
+The generated repository README must include:
 
-- Cytoscape graph
-- search
-- node type filter
-- relationship filter
-- traversal depth
-- legend
-- node details
-- relationships tab
-- evidence tab
-- graph counts
-- optional safe Cypher query panel
+- Product overview
+- Architecture diagram
+- Prerequisites
+- LM Studio setup
+- Model role configuration
+- Local startup
+- Docker startup
+- How to upload a workbook
+- Output package explanation
+- How feedback and reprocessing work
+- Test commands
+- Known limitations
+- Security note about macros
 
-Acceptance:
+---
+
+## 27. Final product behavior summary
+
+The completed application should feel like this:
 
 ```text
-Neo4j graph is visible and interactive.
-Selecting a node shows details and provenance.
-Filters change displayed graph.
-UI matches screenshot.
+Upload workbook
+    ↓
+System profiles workbook and selects a processing path
+    ↓
+Deterministic tools extract structure, data, formulas, visuals, and lineage
+    ↓
+Local agents interpret semantics and ambiguity
+    ↓
+System validates and creates a normalized Workbook Knowledge Package
+    ↓
+User reviews only uncertain items
+    ↓
+User gives feedback
+    ↓
+Feedback becomes processing directives
+    ↓
+Only impacted assets are reprocessed
+    ↓
+User compares and accepts the improved run
 ```
 
----
-
-## Milestone 10 — POC Polish
-
-Complete:
-
-- loading states
-- empty states
-- failure states
-- responsive laptop layout
-- demo fixtures
-- automated tests
-- setup documentation
-- reset-demo command/script
-
-Acceptance:
-
-```text
-A new developer can clone, configure LM Studio + Neo4j, run the app, upload sources, generate assets, review, publish and explore the graph.
-```
-
----
-
-# 41. Definition of Done
-
-The POC is complete when the following demo works end-to-end:
-
-```text
-1. Start LM Studio local server.
-2. Start frontend and backend.
-3. App reports LM Studio connected.
-4. App reports Neo4j Aura connected.
-5. User enters a knowledge objective.
-6. User uploads structured schema.
-7. User uploads PDF/DOCX/image.
-8. User selects Hybrid mode.
-9. User clicks Generate Graph Assets.
-10. Agent dynamically plans processing.
-11. Agent calls modality-specific tools.
-12. Agent creates entities, relationships, concepts and facts.
-13. Agent performs entity resolution.
-14. Quality Reviewer evaluates output.
-15. At least one retry/re-plan path is demonstrable.
-16. Graph Assets screen shows generated assets.
-17. User reviews evidence and confidence.
-18. User approves assets.
-19. User publishes approved assets.
-20. Neo4j Aura contains the graph.
-21. Graph Explorer displays the graph using Cytoscape.js.
-22. User can select a node and inspect provenance.
-```
-
----
-
-# 42. POC Non-Goals
-
-Do not implement unless specifically requested later:
-
-```text
-enterprise SSO
-multi-tenant architecture
-direct production database connections
-CDC
-Kafka
-Kubernetes
-distributed worker clusters
-full ontology editor
-enterprise governance workflow
-complex RBAC
-real-time collaboration
-full document management
-large-scale vector platform
-custom model training
-billing
-enterprise audit platform
-```
-
----
-
-# 43. Coding Principles
-
-Codex must follow these rules:
-
-1. Prefer clear code over abstractions created “for future scale”.
-2. Keep domain logic independent of UI and Neo4j.
-3. Keep LM Studio behind a model provider abstraction.
-4. Keep Neo4j behind a graph store abstraction.
-5. Keep knowledge extraction outputs strongly typed.
-6. Preserve provenance throughout the pipeline.
-7. Never expose hidden chain-of-thought.
-8. Use deterministic tools before LLM reasoning when practical.
-9. Make retries explicit and bounded.
-10. Avoid silent failures.
-11. Do not invent missing extracted facts.
-12. Separate candidate assets from approved assets.
-13. Only approved assets are published by default.
-14. Build to the screenshots.
-15. Do not add product features not required by this file.
-
----
-
-# 44. Implementation Behavior Expected from Codex
-
-When asked to implement the application:
-
-1. Read this `CODEX.md`.
-2. Inspect `application_screenshot/`.
-3. Inspect the existing repository.
-4. Reuse working code where appropriate.
-5. Build incrementally following the milestones.
-6. Run tests after meaningful changes.
-7. Fix lint/type/test errors introduced by the implementation.
-8. Do not rewrite unrelated code.
-9. Do not change the core architecture without explaining the reason.
-10. Keep the application runnable after each milestone.
-11. Prefer working vertical slices over placeholder architecture.
-12. If a library API differs from this document, use the current official API while preserving the architectural intent.
-
----
-
-# 45. Final Architecture Summary
-
-```text
-┌───────────────────────────────────────────────────────┐
-│                    React Frontend                     │
-│                                                       │
-│  Build        Graph Assets        Graph Explorer      │
-└──────────────────────────┬────────────────────────────┘
-                           │ REST / SSE
-                           ▼
-┌───────────────────────────────────────────────────────┐
-│                    FastAPI Backend                    │
-│                                                       │
-│ Projects │ Sources │ Runs │ Review │ Graph APIs       │
-└──────────────────────────┬────────────────────────────┘
-                           │
-                           ▼
-┌───────────────────────────────────────────────────────┐
-│          Knowledge Asset Construction Agent           │
-│                                                       │
-│               Deep Agents Supervisor                  │
-│                         │                             │
-│        ┌────────────────┼────────────────┐            │
-│        ▼                ▼                ▼            │
-│ Source Analyst   Knowledge Engineer   Graph Modeller  │
-│                         │                             │
-│                  Quality Reviewer                     │
-│                         │                             │
-│              Reactive Re-plan Loop                    │
-└──────────────────────────┬────────────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        ▼                  ▼                  ▼
- Structured Tools   Document Tools      Knowledge Tools
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           ▼
-                  LM Studio Local LLM
-                           │
-                           ▼
-                KnowledgeAssetPackage
-                           │
-                  Review / Approval
-                           │
-                           ▼
-                  Neo4j Graph Publisher
-                           │
-                           ▼
-                     Neo4j Aura
-                           │
-                           ▼
-                 Cytoscape Graph View
-```
-
----
-
-# 46. Most Important Rule
-
-The POC must feel simple to the user even if the backend is intelligent.
-
-The user experience is intentionally:
-
-```text
-UPLOAD
-   ↓
-GENERATE GRAPH ASSETS
-   ↓
-REVIEW
-   ↓
-PUBLISH
-   ↓
-EXPLORE GRAPH
-```
-
-Do not expose orchestration complexity unless it provides useful status or explainability.
-
-The intelligence belongs in the backend.
-
-The frontend should remain minimal, polished, and enterprise-ready.
+The user should experience a simple workbook-processing product. The implementation should provide a rigorous, traceable, multimodal knowledge-extraction platform underneath it.

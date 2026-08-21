@@ -1,0 +1,8 @@
+{
+  "status": "review_recommended",
+  "checks": {
+    "semantic_units_have_provenance": true,
+    "graph_edges_have_evidence": true,
+    "images_have_source_location": true
+  }
+}

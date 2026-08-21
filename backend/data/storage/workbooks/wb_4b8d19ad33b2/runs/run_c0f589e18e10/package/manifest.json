@@ -1,0 +1,123 @@
+{
+  "package_version": "0.1.0",
+  "workbook_id": "wb_4b8d19ad33b2",
+  "run_id": "run_c0f589e18e10",
+  "source_file": "02_multiple_sheets.xlsx",
+  "file_type": "xlsx",
+  "macro_present": false,
+  "protection_present": false,
+  "semantic_mode": "local_model",
+  "calculation_notice": "Formula expressions were inspected; values were not recalculated.",
+  "sheet_count": 3,
+  "sheets": [
+    {
+      "sheet_id": "wb_4b8d19ad33b2.sheet_01",
+      "name": "Customers",
+      "index": 1,
+      "visibility": "visible",
+      "used_range": "A1:C3",
+      "max_row": 3,
+      "max_column": 3,
+      "merged_ranges": [],
+      "formula_count": 0,
+      "table_count": 0,
+      "image_count": 0,
+      "chart_count": 0
+    },
+    {
+      "sheet_id": "wb_4b8d19ad33b2.sheet_02",
+      "name": "Orders",
+      "index": 2,
+      "visibility": "visible",
+      "used_range": "A1:D3",
+      "max_row": 3,
+      "max_column": 4,
+      "merged_ranges": [],
+      "formula_count": 2,
+      "table_count": 0,
+      "image_count": 0,
+      "chart_count": 0
+    },
+    {
+      "sheet_id": "wb_4b8d19ad33b2.sheet_03",
+      "name": "Reference",
+      "index": 3,
+      "visibility": "hidden",
+      "used_range": "A1:B2",
+      "max_row": 2,
+      "max_column": 2,
+      "merged_ranges": [],
+      "formula_count": 0,
+      "table_count": 0,
+      "image_count": 0,
+      "chart_count": 0
+    }
+  ],
+  "counts": {
+    "sheets": 3,
+    "tables": 3,
+    "formulas": 2,
+    "images": 0,
+    "charts": 0,
+    "comments": 0,
+    "semantic_units": 5,
+    "graph_nodes": 7,
+    "graph_edges": 6
+  },
+  "complexity": {
+    "layout": 0.25,
+    "data": 0.0005,
+    "dependency": 0.012,
+    "computation": 0.002,
+    "visual": 0.0,
+    "archetype": "analytical_model"
+  },
+  "purpose": "Knowledge extraction / Entity & relationship",
+  "applied_directives": [],
+  "processing_plan": {
+    "workbook_archetype": "analytical_model",
+    "steps": [
+      "Extract entities from defined tables",
+      "Map relationships between entities based on shared keys",
+      "Identify business rules from formulas",
+      "Summarize data structure and dependencies"
+    ],
+    "focus_areas": [],
+    "risk_flags": [],
+    "reasoning_summary": "The workbook contains three sheets: 'Customers', 'Orders', and 'Reference'. The 'Customers' and 'Orders' sheets contain structured tables with 2 rows of data each. The 'Orders' table uses VLOOKUP formulas to pull 'customer_name' from the 'Customers' sheet based on 'customer_id', establishing a direct relationship between the two entities. The 'Reference' sheet is hidden and contains a single row mapping codes to meanings, likely for categorization. No charts or images are present. The complexity is low, dominated by layout structure rather than computation."
+  },
+  "semantic_analysis": {
+    "summary": "The workbook '02_multiple_sheets.xlsx' serves as an analytical model for customer and order management. It contains two visible sheets ('Customers' and 'Orders') and one hidden 'Reference' sheet. The 'Customers' sheet defines customer segments (Enterprise, SMB), while the 'Orders' sheet tracks transaction amounts and dynamically pulls customer names via VLOOKUP formulas referencing the 'Customers' sheet. A hidden 'Reference' sheet provides definitions for segment codes.",
+    "domain": "Sales & Operations",
+    "business_terms": [],
+    "entities": [],
+    "relationships": [],
+    "confidence": 0.95
+  },
+  "summary": "The workbook '02_multiple_sheets.xlsx' serves as an analytical model for customer and order management. It contains two visible sheets ('Customers' and 'Orders') and one hidden 'Reference' sheet. The 'Customers' sheet defines customer segments (Enterprise, SMB), while the 'Orders' sheet tracks transaction amounts and dynamically pulls customer names via VLOOKUP formulas referencing the 'Customers' sheet. A hidden 'Reference' sheet provides definitions for segment codes.",
+  "agent_validation": {
+    "status": "review_recommended",
+    "findings": [
+      "unsupported_claim",
+      "missing_provenance",
+      "low_confidence_mapping"
+    ],
+    "confidence": 0.65
+  },
+  "agent_runtime": {
+    "framework": "langchain_deep_agents",
+    "reasoning_model": "qwen/qwen3.5-9b",
+    "vision_model": "google/gemma-4-12b",
+    "agents": {
+      "supervisor": "structured_adapter",
+      "semantic_agent": "structured_adapter",
+      "visual_agent": "not_needed",
+      "validation_agent": "structured_adapter"
+    }
+  },
+  "embedding_status": {
+    "status": "completed",
+    "vector_count": 6,
+    "chunk_count": 6
+  }
+}

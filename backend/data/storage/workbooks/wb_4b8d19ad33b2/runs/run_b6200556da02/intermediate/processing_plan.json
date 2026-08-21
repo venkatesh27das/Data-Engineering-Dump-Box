@@ -1,0 +1,27 @@
+{
+  "workbook_archetype": "analytical_model",
+  "steps": [
+    "profiling",
+    "planning",
+    "extracting",
+    "interpreting",
+    "validating",
+    "packaging"
+  ],
+  "excluded_steps": [
+    "macro_execution"
+  ],
+  "reasoning_summary": "The workbook is an analytical model containing three sheets: 'Customers' (static data), 'Orders' (data with lookup formulas), and 'Reference' (hidden definitions). The primary logic involves linking 'Orders' to 'Customers' via 'customer_id' using VLOOKUP formulas to populate 'customer_name'. The 'Reference' sheet provides definitions for customer segments ('SMB', 'Enterprise') but is currently hidden. No visualizations or complex calculations are present, indicating a raw data preparation stage for entity and relationship extraction.",
+  "agent_runtime": {
+    "framework": "langchain_deep_agents",
+    "reasoning_model": "qwen/qwen3.5-9b",
+    "vision_model": "google/gemma-4-12b",
+    "agents": {
+      "supervisor": "structured_adapter",
+      "semantic_agent": "structured_adapter",
+      "visual_agent": "not_needed",
+      "validation_agent": "structured_adapter"
+    }
+  },
+  "applied_directives": []
+}
