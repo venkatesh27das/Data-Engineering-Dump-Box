@@ -47,6 +47,80 @@ export interface Asset {
   review_status: string
 }
 
+export interface AssetContent {
+  asset: Asset
+  content_kind: 'image' | 'table' | 'json'
+  record: Record<string, unknown> | null
+  record_source: string | null
+  preview_rows: Record<string, unknown>[]
+  preview_columns: string[]
+  lineage: LineageEdge[]
+  preview_available: boolean
+  preview_file: string | null
+  data_file: string | null
+}
+
+export interface RunEvent {
+  event_id: string
+  run_id: string
+  timestamp: string
+  stage: string
+  status: string
+  progress_percent: number
+  message: string
+  details: Record<string, unknown>
+}
+
+export interface TraceStage {
+  stage: string
+  status: string
+  progress_percent: number
+  message: string
+  started_at: string
+  duration_seconds: number | null
+  event_count: number
+  details: Record<string, unknown>
+}
+
+export interface LineageEdge {
+  edge_id?: string
+  source_id?: string
+  source_name?: string
+  relationship_type?: string
+  target_id?: string
+  target_name?: string
+  relationship_description?: string
+  evidence?: string[]
+  confidence?: number
+  provenance?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface RunTrace {
+  run_id: string
+  status: RunStatus
+  current_stage: string
+  progress_percent: number
+  error_message: string | null
+  events: RunEvent[]
+  stages: TraceStage[]
+  processing_plan: {
+    workbook_archetype?: string
+    steps?: string[]
+    excluded_steps?: string[]
+    reasoning_summary?: string
+    agent_runtime?: Record<string, unknown>
+    applied_directives?: Record<string, unknown>[]
+  }
+  lineage: {
+    technical: LineageEdge[]
+    business: LineageEdge[]
+    technical_count: number
+    business_count: number
+  }
+  asset_counts: Record<string, number>
+}
+
 export interface ReviewItem {
   id: string
   title: string

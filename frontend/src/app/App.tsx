@@ -21,6 +21,8 @@ export function App() {
             <Route path="workbooks/:workbookId" element={<WorkbookDetailPage />} />
             <Route path="runs" element={<RunHistoryPage />} />
             <Route path="runs/:runId" element={<RunDetailPage />} />
+            <Route path="runs/:runId/assets" element={<RunDetailPage />} />
+            <Route path="runs/:runId/trace" element={<RunDetailPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="feedback" element={<Navigate to="/runs" replace />} />
           </Route>
@@ -29,4 +31,3 @@ export function App() {
     </QueryClientProvider>
   )
 }
-

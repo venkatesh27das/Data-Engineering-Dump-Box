@@ -1,8 +1,7 @@
-.PHONY: install dev backend worker frontend redis test test-backend test-frontend lint format create-fixtures seed-demo verify-lmstudio
+.PHONY: install dev backend worker frontend redis test test-backend test-frontend lint format check create-fixtures seed-demo verify-lmstudio
 
 install:
-	uv sync --project backend --extra dev
-	cd frontend && npm install
+	./install.sh
 
 dev:
 	@echo "Run 'make backend' and 'make frontend' in separate terminals. The built-in worker is enabled by default."
@@ -31,6 +30,9 @@ lint:
 	uv run --project backend ruff check backend
 	cd frontend && npm run lint
 
+check: lint test
+	cd frontend && npm run build
+
 format:
 	uv run --project backend ruff format backend
 	cd frontend && npm run format
@@ -43,4 +45,3 @@ seed-demo:
 
 verify-lmstudio:
 	uv run --project backend python scripts/verify_lmstudio.py
-

@@ -20,6 +20,17 @@ from app.processing.vba_inspector import inspect_vba
 FORMULA_REF = re.compile(r"(?:'([^']+)'|([A-Za-z0-9_ ]+))!\$?([A-Z]{1,3})\$?(\d+)")
 
 
+def workbook_protection_present(book: Any) -> bool:
+    security = getattr(book, "security", None)
+    return bool(
+        security
+        and (
+            getattr(security, "lockStructure", False)
+            or getattr(security, "lockWindows", False)
+        )
+    )
+
+
 @dataclass
 class ExtractionResult:
     manifest: dict[str, Any]
@@ -72,7 +83,7 @@ def extract_workbook(
         "file_type": extension.removeprefix("."),
         "macro_present": bool(package_features["macro_present"]),
         "macro_inspection": vba_report or {"inspection_status": "not_present"},
-        "protection_present": bool(book.security.lockStructure or book.security.lockWindows),
+        "protection_present": workbook_protection_present(book),
         "semantic_mode": "local_model" if model_available else "deterministic_fallback",
         "calculation_notice": "Formula expressions were inspected; values were not recalculated.",
         "sheet_count": len(book.sheetnames),

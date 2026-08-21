@@ -17,6 +17,7 @@ from app.api.dependencies import (
 from app.domain.schemas import FeedbackRequest, RunOut
 from app.services.feedback_service import parse_feedback
 from app.services.intake_service import IntakeService
+from app.services.run_inspection_service import build_run_trace
 from app.services.run_processor import RunProcessor
 from app.storage.database import Database, now_iso
 from app.storage.local_store import LocalStore
@@ -38,6 +39,18 @@ def get_run(run_id: str, database: Database = Depends(get_database)) -> dict:
     if not run:
         raise HTTPException(404, "Run not found")
     return run
+
+
+@router.get("/{run_id}/trace")
+def get_run_trace(
+    run_id: str,
+    database: Database = Depends(get_database),
+    store: LocalStore = Depends(get_store),
+) -> dict[str, Any]:
+    run = database.get_run(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    return build_run_trace(run_id, database, store, run)
 
 
 @router.get("/{run_id}/events")

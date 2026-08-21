@@ -43,9 +43,20 @@ def test_upload_to_package(client):
     assert run["status"] == "completed"
     assert run["output_unit_count"] > 0
     assets = client.get(f"/api/v1/runs/{run['id']}/assets").json()
-    assert any(asset["asset_type"] == "table" for asset in assets)
+    table_asset = next(asset for asset in assets if asset["asset_type"] == "table")
     assert any(asset["asset_type"] == "semantic_unit" for asset in assets)
     assert any(asset["asset_type"] == "relationship" for asset in assets)
+    content = client.get(f"/api/v1/assets/{table_asset['id']}/content")
+    assert content.status_code == 200
+    assert content.json()["content_kind"] == "table"
+    assert len(content.json()["preview_rows"]) == 2
+    asset_download = client.get(f"/api/v1/assets/{table_asset['id']}/download")
+    assert asset_download.status_code == 200
+    assert asset_download.content.startswith(b"PAR1")
+    trace = client.get(f"/api/v1/runs/{run['id']}/trace")
+    assert trace.status_code == 200
+    assert any(stage["stage"] == "extracting" for stage in trace.json()["stages"])
+    assert trace.json()["lineage"]["technical_count"] > 0
     package = client.get(f"/api/v1/runs/{run['id']}/package/download")
     assert package.status_code == 200
     assert package.content.startswith(b"PK")

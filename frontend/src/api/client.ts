@@ -1,4 +1,4 @@
-import type { Asset, ModelStatus, ProcessingRun, ReviewItem, Workbook } from '../types'
+import type { Asset, AssetContent, ModelStatus, ProcessingRun, ReviewItem, RunTrace, Workbook } from '../types'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
 
@@ -26,13 +26,18 @@ export const api = {
   getRun: (id: string) => request<ProcessingRun>(`/runs/${id}`),
   listWorkbookRuns: (id: string) => request<ProcessingRun[]>(`/runs?workbook_id=${id}`),
   listAssets: (id: string) => request<Asset[]>(`/runs/${id}/assets`),
+  getAssetContent: (id: string) => request<AssetContent>(`/assets/${encodeURIComponent(id)}/content`),
+  getRunTrace: (id: string) => request<RunTrace>(`/runs/${id}/trace`),
   listReviewItems: (id: string) => request<ReviewItem[]>(`/runs/${id}/review-items`),
   resolveReview: (id: string, action: string) => request<ReviewItem>(`/review-items/${id}/${action}`, { method: 'POST' }),
   reprocess: (id: string, raw_text: string) => request<ProcessingRun>(`/runs/${id}/reprocess`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_text, scope: 'impacted_assets', preserve_approved_assets: true }) }),
   cancelRun: (id: string) => request<ProcessingRun>(`/runs/${id}/cancel`, { method: 'POST' }),
+  retryRun: (id: string) => request<ProcessingRun>(`/runs/${id}/retry`, { method: 'POST' }),
   acceptRun: (id: string) => request<ProcessingRun>(`/runs/${id}/accept`, { method: 'POST' }),
   modelStatus: () => request<ModelStatus>('/models/status'),
   probeModels: () => request<ModelStatus>('/models/probe', { method: 'POST' }),
   packageUrl: (id: string) => `${API}/runs/${id}/package/download`,
+  assetPreviewUrl: (id: string) => `${API}/assets/${encodeURIComponent(id)}/preview`,
+  assetDownloadUrl: (id: string) => `${API}/assets/${encodeURIComponent(id)}/download`,
   eventUrl: (id: string) => `${API}/runs/${id}/events`,
 }

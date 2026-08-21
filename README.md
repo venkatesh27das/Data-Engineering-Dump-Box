@@ -1,91 +1,198 @@
 # Workbook Agent
 
-Workbook Agent is a local-first application that turns Excel workbooks into traceable knowledge packages. It preserves sheets, regions, tables, formulas, images, charts, relationships, and source provenance instead of flattening the workbook into loose text.
+Workbook Agent is a local-first application that turns Excel workbooks into structured, traceable knowledge packages. It preserves workbook structure, formulas, tables, charts, images, relationships, and provenance instead of flattening everything into plain text.
+
+## Highlights
+
+- Upload and analyze `.xlsx`, `.xlsm`, and `.xlsb` workbooks.
+- Extract sheets, regions, tables, formulas, charts, images, named ranges, validations, connections, and other Excel metadata.
+- Inspect every generated artifact in the run-specific **Asset Explorer**.
+- Follow extraction stages, agent activity, dependencies, and failures in **Processing Trace**.
+- Reprocess a run with feedback and compare or accept generated versions.
+- Continue using the deterministic pipeline when LM Studio is unavailable.
+- Keep workbook data, model calls, packages, and vectors on the local machine by default.
 
 ## Architecture
 
 ```text
 React UI ── REST/SSE ── FastAPI ── SQLite + local object storage
                               ├── background workbook pipeline
-                              ├── Deep Agents runtime + structured fallback
+                              ├── specialist agents + structured fallback
                               └── LM Studio chat, vision, and embeddings
 ```
 
-The deterministic pipeline remains usable when LM Studio is offline. When it is online, specialist planning, semantic, visual, validation, and feedback agents use local models, and embedding vectors are written into the package. Agent failures are isolated and marked as degraded rather than blocking deterministic package creation. Uploaded macros are detected and recorded but are never executed.
+The local pipeline handles workbook profiling, planning, extraction, indexing, validation, packaging, and review. If LM Studio is available, the application can add local reasoning, vision interpretation, entity extraction, and embeddings. Model failures degrade gracefully and do not prevent deterministic package creation.
 
-## Prerequisites
+## Quick start
 
-- Node.js 20+
-- Python 3.11+ (managed automatically by `uv`)
-- `uv`
-- Optional: Docker Desktop and LM Studio
+### Prerequisites
 
-## Local startup
+- macOS or Linux
+- [Node.js](https://nodejs.org/) 20 or newer
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- Optional: [LM Studio](https://lmstudio.ai/) for local AI capabilities
+- Optional: Docker Desktop for container-based startup
+
+### Install
 
 ```bash
-cp .env.example .env
-make install
-make create-fixtures
+git clone https://github.com/venkatesh27das/Data-Engineering-Dump-Box.git
+cd Data-Engineering-Dump-Box
+./install.sh
+```
+
+The installer creates `.env` from `.env.example` when needed, installs the locked backend and frontend dependencies, and keeps an existing `.env` unchanged.
+
+Useful installer options:
+
+```bash
+./install.sh --with-fixtures  # also generate backend test workbooks
+./install.sh --check          # install, lint, test, and build
+./install.sh --help
+```
+
+### Run
+
+Start the API:
+
+```bash
 make backend
 ```
 
-In a second terminal:
+In a second terminal, start the web application:
 
 ```bash
 make frontend
 ```
 
-Open <http://localhost:5173>. The API documentation is at <http://localhost:8000/docs>.
+Then open:
 
-The API uses a lightweight in-process background worker by default so the core flow works without Redis. `make redis` and `make worker` are provided for the production queue migration boundary.
+- Application: <http://localhost:5173>
+- API documentation: <http://localhost:8000/docs>
+- Health check: <http://localhost:8000/api/v1/health>
+
+The development server includes an in-process background worker, so Redis is not required for the standard local workflow.
+
+## Using the application
+
+1. Upload an Excel workbook from **Home**.
+2. Select the processing purpose and choose **Analyze Workbook**.
+3. Follow live progress on the run overview.
+4. Open **Assets** to browse generated sheets, tables, formulas, charts, images, semantic units, and package files.
+5. Open **Processing Trace** to inspect stage durations, agent activity, lineage, dependencies, and errors.
+6. Download the completed knowledge package, or reprocess it with feedback.
+
+For failed runs, the trace shows the recorded error and the last successful stage. Use **Retry** after addressing the failure; incomplete runs do not expose a misleading package download.
+
+## Sample workbooks
+
+The [`test_files`](./test_files) directory contains three upload-ready examples:
+
+- `16_simple_inventory.xlsx` — basic inventory data and formulas.
+- `17_intermediate_sales_model.xlsx` — multiple sheets, lookups, summaries, and charts.
+- `18_advanced_operations_pack.xlsx` — complex formatting, validations, relationships, formulas, and operational reporting.
+
+Generated backend fixtures can also be recreated with:
+
+```bash
+make create-fixtures
+```
+
+## Knowledge package
+
+Completed packages are stored under:
+
+```text
+data/storage/workbooks/{workbook_id}/runs/{run_id}/package/
+```
+
+A package can include:
+
+- workbook and processing manifests
+- sheet, region, table, formula, chart, and image metadata
+- normalized Parquet tables
+- contextual semantic units and embedding-ready chunks
+- local embedding vectors
+- graph nodes, edges, and lineage records
+- validation results and review items
+
+Runtime database/storage files, `backend/data/`, and `outputs/` are intentionally excluded from Git.
 
 ## LM Studio setup
 
-1. Load suitable reasoning, vision, and embedding models in LM Studio.
-2. Start its OpenAI-compatible local server on port `1234`.
-3. Leave model role variables blank for automatic local selection, or set `LLM_REASONING_MODEL`, `LLM_VISION_MODEL`, and `EMBEDDING_MODEL` explicitly.
-4. Run `make verify-lmstudio`, or use **Settings → Test capabilities** for structured chat, image understanding, and vector probes.
+1. Load suitable chat, vision, and embedding models in LM Studio.
+2. Start the OpenAI-compatible local server on port `1234`.
+3. Keep the role variables blank for automatic model selection, or set them explicitly in `.env`.
+4. Run `make verify-lmstudio`, or open **Settings → Test capabilities**.
 
-The current automatic preferences select a Qwen chat model for reasoning, a vision-capable Gemma/VL model for images, and a model containing `embed` for vectors. Settings changed through `PUT /api/v1/models/config` are saved locally in `data/model_config.json`.
+Common configuration:
 
-When the API runs in Docker on macOS or Windows, use `http://host.docker.internal:1234/v1`.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LM_STUDIO_BASE_URL` | `http://localhost:1234/v1` | Local OpenAI-compatible endpoint |
+| `LLM_REASONING_MODEL` | empty | Explicit reasoning model override |
+| `LLM_VISION_MODEL` | empty | Explicit vision model override |
+| `EMBEDDING_MODEL` | empty | Explicit embedding model override |
+| `AUTO_SELECT_MODELS` | `true` | Discover suitable loaded models |
+| `ENABLE_VISION` | `true` | Enable image and chart interpretation |
+| `ENABLE_OCR` | `true` | Enable image text extraction |
+| `ENABLE_EMBEDDINGS` | `true` | Generate vector embeddings when available |
+| `STORAGE_ROOT` | `./data/storage` | Local package and upload storage |
+| `MAX_UPLOAD_MB` | `200` | Maximum workbook upload size |
 
-## Docker startup
+When the API runs in Docker on macOS or Windows, set `LM_STUDIO_BASE_URL=http://host.docker.internal:1234/v1`.
+
+## Development commands
+
+```bash
+make install          # run the installer
+make backend          # FastAPI development server
+make frontend         # Vite development server
+make test             # backend and frontend tests
+make lint             # Python and TypeScript linting
+make check            # lint, test, and production frontend build
+make format           # format supported source files
+make create-fixtures  # recreate generated backend fixtures
+make seed-demo        # seed demo records
+make verify-lmstudio  # probe local model capabilities
+```
+
+## Docker
 
 ```bash
 docker compose up --build
 ```
 
-## Using the application
+The Compose stack starts the API, web application, and Redis boundary. The API still uses its built-in worker, and local development does not require Redis.
 
-Drop an `.xlsx`, `.xlsm`, or `.xlsb` file on Home, choose a purpose, and select **Analyze Workbook**. The run page streams recoverable progress. Completed output is organized under `data/storage/workbooks/{id}/runs/{id}/package` and can be downloaded as a ZIP.
+## Repository layout
 
-The package includes a workbook manifest, sheet/table/formula/image/chart metadata, normalized Parquet tables, contextual semantic units, embedding-ready chunks, generated vectors, graph nodes/edges, lineage, quality results, and review items. Agent execution mode and chosen models are recorded in the manifest.
-
-Advanced Excel coverage includes multi-row merged headers, repeated data blocks, label/value forms, external links, workbook connections, query-table and Power Query package detection, pivot metadata, conditional formatting, data validation, static VBA inspection, chart series/axis/source interpretation, embedded-image OCR, and value/table/semantic extraction for `.xlsb` files.
-
-Reprocessing accepts plain-language feedback, converts it to typed directives, creates a child run, and limits work to impacted assets where possible. Runs can be compared and accepted as the workbook's current version.
-
-## Tests and quality
-
-```bash
-make test
-make lint
-make format
+```text
+backend/       FastAPI API, processing pipeline, services, and tests
+frontend/      React/Vite application and component tests
+test_files/    upload-ready example Excel workbooks
+data/          ignored local database, uploads, and packages
+install.sh     reproducible local dependency installer
+Makefile       common development commands
 ```
 
-Synthetic workbook fixtures can be recreated with `make create-fixtures` and demo rows with `make seed-demo`.
+## Troubleshooting
+
+- **LM Studio is offline:** deterministic extraction still works; the run records model-backed capabilities as unavailable or degraded.
+- **A workbook fails to parse:** open **Processing Trace** for the exact error, verify the file opens in Excel or LibreOffice, then retry the run.
+- **Port 8000 or 5173 is busy:** stop the existing process or run the respective server on a different port.
+- **Dependencies look stale:** rerun `./install.sh`; it uses `uv.lock` and `package-lock.json` for reproducible installs.
+- **You need a clean local dataset:** stop the app and remove only the intended local runtime database/storage files. Do not commit generated package content.
 
 ## Known limitations
 
-- The first implementation uses an in-process worker; the Redis/RQ adapter boundary is scaffolded for distributed operation.
-- Local inference speed depends on the selected models and hardware. A model-backed run can take longer than deterministic extraction.
-- OCR uses the configured local vision model and stores verbatim text blocks with image provenance. If vision is unavailable, the image remains packaged for later interpretation.
-- Impacted-assets feedback is converted to typed directives; the current local worker safely rebuilds the canonical package so cross-file consistency is preserved.
-- Excel formulas are inspected, not recalculated.
-- `.xlsb` value, region, table, and semantic-unit extraction is supported. Formula expressions, hidden-sheet state, and drawings remain explicitly flagged when the binary parser cannot expose them.
-- Encrypted workbooks are rejected; password recovery is never attempted.
+- The default development worker runs in-process; the Redis/RQ boundary is prepared for distributed execution.
+- Formula expressions are inspected but not recalculated.
+- `.xlsb` support covers values, regions, tables, and semantic units; some formula, drawing, and visibility details depend on what the binary parser exposes.
+- Uploaded macros and embedded code are detected and statically recorded but never executed.
+- Encrypted workbooks are rejected; password recovery is not attempted.
+- Local model speed and quality depend on the loaded models and available hardware.
 
 ## Security and privacy
 
-Workbook content stays on the local machine by default. Filenames are sanitized, upload size and archive expansion are bounded, HTML is not rendered from cells, and cell values are not logged. VBA and embedded code are only detected and statically recorded—never executed.
+Workbook content remains local by default. Filenames are sanitized, upload size and archive expansion are bounded, HTML from cells is not rendered, and cell values are not written to application logs. VBA and embedded code are never executed.

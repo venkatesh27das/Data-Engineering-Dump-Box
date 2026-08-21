@@ -8,6 +8,8 @@ __pycache__/
 *.db
 data/storage/**
 !data/storage/.gitkeep
+backend/data/
+outputs/
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/

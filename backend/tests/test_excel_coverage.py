@@ -1,14 +1,25 @@
 import json
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from pyxlsb.worksheet import Cell
 
-from app.processing.extractor import extract_workbook
+from app.processing.extractor import extract_workbook, workbook_protection_present
 from app.processing.package_writer import write_package
 from app.processing.vba_inspector import inspect_vba
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workbooks"
+
+
+def test_missing_workbook_protection_metadata_is_treated_as_unprotected():
+    assert workbook_protection_present(SimpleNamespace(security=None)) is False
+    assert (
+        workbook_protection_present(
+            SimpleNamespace(security=SimpleNamespace(lockStructure=True, lockWindows=False))
+        )
+        is True
+    )
 
 
 def test_advanced_layout_and_ooxml_features_are_extracted(tmp_path: Path):

@@ -67,6 +67,22 @@ class RunProcessor:
             }
         )
 
+    def _detail_event(
+        self, run_id: str, stage: str, progress: int, message: str, details: dict
+    ) -> None:
+        self.database.add_event(
+            {
+                "event_id": f"evt_{uuid4().hex[:14]}",
+                "run_id": run_id,
+                "timestamp": now_iso(),
+                "stage": stage,
+                "status": stage,
+                "progress_percent": progress,
+                "message": message,
+                "details": details,
+            }
+        )
+
     def _process(self, run_id: str, directives: list[dict]) -> None:
         started = time.monotonic()
         try:
@@ -94,6 +110,22 @@ class RunProcessor:
                     )
                     result.manifest["purpose"] = workbook.get("purpose", "")
                     result.manifest["applied_directives"] = directives
+                    self._detail_event(
+                        run_id,
+                        stage,
+                        progress,
+                        "Deterministic workbook extraction completed",
+                        {
+                            "sheets": len(result.sheets),
+                            "tables": len(result.tables),
+                            "formulas": len(result.formulas),
+                            "images": len(result.images),
+                            "charts": len(result.charts),
+                            "forms": len(result.forms),
+                            "connections": len(result.connections),
+                            "queries": len(result.queries),
+                        },
+                    )
                 elif stage == "interpreting" and result:
                     agent_report = self.agent_runtime.enrich(result)
                     self.database.add_event(
@@ -128,6 +160,19 @@ class RunProcessor:
                             "vector_count": 0,
                             "error": str(error),
                         }
+                    self._detail_event(
+                        run_id,
+                        stage,
+                        progress,
+                        "Validation and embedding preparation completed",
+                        {
+                            "semantic_units": len(result.units),
+                            "graph_nodes": len(result.nodes),
+                            "graph_edges": len(result.edges),
+                            "review_items": len(result.reviews),
+                            "embedding_status": result.manifest["embedding_status"],
+                        },
+                    )
                 elif stage == "packaging" and result:
                     run_root = self.store.run_path(workbook["id"], run_id)
                     (run_root / "intermediate").mkdir(exist_ok=True)
@@ -155,6 +200,18 @@ class RunProcessor:
                         asset["content_uri"] = str(archive)
                     self.database.replace_assets(run_id, workbook["id"], result.assets)
                     self.database.replace_reviews(run_id, result.reviews)
+                    self._detail_event(
+                        run_id,
+                        stage,
+                        progress,
+                        "Knowledge package indexed and ready for delivery",
+                        {
+                            "indexed_assets": len(result.assets),
+                            "review_items": len(result.reviews),
+                            "embedding_vectors": len(embeddings),
+                            "package_created": archive.is_file(),
+                        },
+                    )
                 time.sleep(0.08)
             if not result:
                 raise RuntimeError("Extraction produced no result")
