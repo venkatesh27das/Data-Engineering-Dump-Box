@@ -1,1977 +1,1678 @@
-# Workbook Agent — Codex Implementation Specification
+# CODEX.md — Local Excel / Workbook Intelligence Platform
 
-## 1. Purpose of this file
+## 1. Project Objective
 
-This file is the implementation contract for Codex. Build a working local-first web application that allows a user to:
+Build a **local-first Excel / Workbook Intelligence platform** that runs on a MacBook and processes `.xlsx` workbooks containing:
 
-1. Upload an Excel workbook.
-2. Let the system inspect and understand its structure, formulas, relationships, images, charts, and business context.
-3. Produce a normalized **Workbook Knowledge Package** suitable for embeddings, entity extraction, relationship extraction, knowledge-graph construction, RAG, and downstream analytics.
-4. Review low-confidence findings.
-5. Give natural-language or structured feedback.
-6. Reprocess only the impacted parts of the workbook while preserving approved outputs.
-7. Inspect previous workbooks and processing runs.
+- multiple sheets
+- structured Excel tables
+- multiple logical tables within a single sheet
+- formulas
+- cross-sheet formula dependencies
+- named ranges
+- merged cells
+- free-text/narrative regions
+- comments/notes
+- images
+- charts
+- hidden sheets
 
-The initial application must run locally and use models served through **LM Studio**. The architecture must keep model providers and agent frameworks replaceable.
+The system must convert a workbook into normalized assets that can later be used for:
 
----
+- structured analytics
+- embeddings / vector search
+- entity extraction
+- graph construction
+- downstream RAG / agentic use cases
+- future migration to Databricks / Azure
 
-## 2. Product name and language
+The core architecture principle is:
 
-**User-facing product name:** Workbook Agent  
-**Processing capability name:** Workbook Intelligence Agent  
-**Primary action label:** Analyze Workbook
+> **Deterministic pipeline first; agentic reasoning only for ambiguous, low-confidence, or failed regions.**
 
-Use business-friendly language in the UI. Do not expose internal terms such as chain-of-thought, prompt loop, LangChain graph, or subagent unless the user opens a technical details panel.
-
----
-
-## 3. Product principles
-
-1. **Simple UI, complex backend.** Keep orchestration and extraction complexity behind the interface.
-2. **Deterministic extraction first.** Use parsers and rules to establish facts. Use LLMs/VLMs for interpretation, ambiguity resolution, summarization, semantic mapping, and planning.
-3. **Never flatten the workbook prematurely.** Preserve workbook, sheet, region, table, formula, image, chart, relationship, and provenance information.
-4. **Normalized outputs are the product.** The output is not merely CSV or extracted text; it is a canonical knowledge package.
-5. **Feedback is executable.** Convert user feedback into structured processing directives and store it with the run.
-6. **Incremental reprocessing.** Reprocess only impacted assets unless the user explicitly selects the full workbook.
-7. **Traceability.** Every generated chunk, entity, relationship, or summary must point back to the workbook, sheet, cell/range, image, chart, query, or formula from which it came.
-8. **Local-first and private.** Do not send workbook content to an external service by default.
-9. **Safe processing.** Detect macros and embedded code but do not execute them.
-10. **Framework portability.** Keep the domain pipeline independent from LangChain Deep Agents or Google ADK.
+Do **not** implement Excel processing as a pure LLM/agent workflow.
 
 ---
 
-## 4. Design references
+## 2. Primary User Experience
 
-The user will provide application screenshots. Treat the screenshots as the visual source of truth.
+The initial product should be a simple local application.
 
-Expected location:
+### Main flow
 
-```text
-design_reference/
-├── 01-home.png
-├── 02-my-workbooks.png
-├── 03-run-history.png
-└── optional-additional-screens.png
-```
+1. User opens local web UI.
+2. User uploads an `.xlsx` workbook.
+3. System creates a processing run.
+4. Workbook is inspected deterministically.
+5. Sheets, regions, formulas, tables, text, images, charts and relationships are extracted.
+6. Low-confidence regions are escalated to the Workbook Intelligence Agent.
+7. Outputs are normalized and stored locally.
+8. UI displays:
+   - workbook summary
+   - processing status
+   - sheet inventory
+   - tables found
+   - formulas found
+   - dependency count
+   - images/charts found
+   - quality score
+   - regions requiring review
+9. User can inspect results.
+10. User can provide feedback and reprocess a selected sheet/region.
 
-Before implementing any UI screen:
-
-1. Inspect all files in `design_reference/`.
-2. Match layout, spacing, typography hierarchy, border radius, table density, status pills, icons, button sizes, and the green/white visual language.
-3. Reuse one consistent shell and design system across all screens.
-4. Do not add decorative dashboards, excessive KPI cards, charts, gradients, or technical panels not present in the screenshots.
-5. The UI should feel spacious, calm, and enterprise-ready.
-6. Use the screenshots for visual direction, but implement real responsive components rather than embedding screenshots.
-
-### Visual style
-
-- White and very light gray surfaces.
-- Excel-inspired green as the primary action color.
-- Soft green selected-navigation background.
-- Thin neutral borders.
-- Minimal shadows.
-- Rounded cards, inputs, and table containers.
-- Dark navy/charcoal text, muted gray secondary text.
-- Avoid heavy blue styling from earlier concepts.
-- Desktop-first, responsive down to tablet width.
+Keep the UI intentionally simple.
 
 ---
 
-## 5. Scope
+# 3. Technology Stack
 
-### 5.1 MVP scope
+Use the following stack unless there is a strong technical reason not to.
 
-Support:
-
-- `.xlsx`
-- `.xlsm` with macro detection and static inspection only
-- `.xlsb` on a best-effort basis
-- Multiple sheets
-- Hidden and very hidden sheets where discoverable
-- Multiple tables or regions per sheet
-- Multi-row and merged headers
-- Repeated blocks
-- Forms and label-value layouts
-- Cross-sheet formulas
-- Named ranges
-- Structured table references
-- Lookup relationships
-- Basic external-link and workbook-connection detection
-- Embedded images and screenshots
-- Chart metadata and chart summaries
-- Comments and notes
-- Conditional-formatting metadata where accessible
-- Normalized datasets
-- Semantic content units
-- Formula and lineage assets
-- Entity and relationship candidates
-- Embedding-ready chunks
-- Review queue
-- Natural-language feedback
-- Incremental reprocessing
-- Run history and run comparison
-- Downloadable output package
-
-### 5.2 Explicit non-goals for the first release
-
-Do not attempt to:
-
-- Execute VBA or Office Scripts.
-- Reproduce the full Microsoft Excel calculation engine.
-- Crack passwords or bypass workbook protection.
-- Support every proprietary add-in.
-- Guarantee refresh of inaccessible external systems.
-- Convert every chart image into exact underlying data.
-- Build a full graph visualization product.
-- Build a full vector database administration UI.
-- Build role-based access control beyond a simple local user mode.
-- Add cloud deployment integrations unless the core local workflow is complete.
-
----
-
-## 6. Recommended technical stack
-
-### 6.1 Frontend
-
-Use:
-
-- React
-- TypeScript
-- Vite
-- React Router
-- TanStack Query
-- Zustand only for small client-side UI state
-- React Hook Form
-- Zod
-- Tailwind CSS
-- shadcn/ui primitives where useful
-- Lucide React icons
-- Native EventSource for Server-Sent Events
-- Vitest and React Testing Library
-- Playwright for end-to-end tests
-
-Do not use a large state-management framework. Server state belongs in TanStack Query.
-
-### 6.2 Backend
-
-Use:
+## Application
 
 - Python 3.11+
 - FastAPI
 - Pydantic v2
-- SQLAlchemy 2.x or SQLModel
-- Alembic
-- SQLite for local development
-- PostgreSQL-compatible schema for later deployment
-- Redis + RQ for background processing jobs
-- Server-Sent Events for progress updates
-- `structlog` or standard structured JSON logging
-- `pytest`, `pytest-asyncio`, and `httpx`
+- Streamlit
 
-Do not run long workbook processing directly in the API request process.
+## Excel / OOXML
 
-### 6.3 Workbook and document processing libraries
+Primary:
+- `openpyxl`
 
-Use a modular adapter layer. Candidate open-source libraries:
+Additional:
+- `lxml`
+- Python `zipfile`
 
-- `openpyxl` for `.xlsx` and `.xlsm` workbook structure, formulas, styles, tables, charts, comments, and images where supported
-- `pyxlsb` for `.xlsb`
-- `xlrd` only for legacy `.xls` if later enabled
-- `pandas` or `polars` for tabular normalization
-- `pyarrow` for Parquet output
-- Python `zipfile` and `lxml` for direct OOXML package inspection when a high-level library does not expose workbook relationships
-- `oletools` for static macro inspection
-- `msoffcrypto-tool` only to detect or open a workbook when a password is explicitly supplied by the user; never attempt password recovery
-- `Pillow` for image handling
-- Optional `PaddleOCR` or `Tesseract` adapter for text-heavy images
-- Optional `img2table` adapter for scanned table extraction
-- `networkx` for in-memory dependency graphs and graph algorithms
+Use OOXML directly only when openpyxl does not expose enough detail.
 
-Keep every parser behind an interface so a library can be replaced without changing the domain model.
+## Tabular processing
 
-### 6.4 LLM, VLM, and embeddings
+Preferred:
+- `polars`
 
-Default local endpoint:
+Allowed:
+- `pandas` where library interoperability requires it
+
+## Formula processing
+
+Use:
+- `formulas` Python package where useful
+- custom formula reference parser where necessary
+
+Do not depend on Microsoft Excel.
+
+## Graph
+
+Use:
+- `networkx`
+
+Persist initial graph assets as:
+- JSON
+- GraphML
+
+Do not introduce Neo4j in MVP.
+
+## Rendering
+
+Use local LibreOffice headless mode when installed.
+
+Use:
+- `soffice --headless`
+
+Purpose:
+- recalculate temporary workbook copies when requested
+- render workbooks/sheets to PDF
+- support visual inspection
+
+Use:
+- `PyMuPDF` (`fitz`)
+
+for PDF to image conversion.
+
+The system must degrade gracefully if LibreOffice is unavailable.
+
+## LLM / VLM
+
+Use LM Studio through its local OpenAI-compatible server.
+
+Default base URL:
 
 ```text
 http://localhost:1234/v1
 ```
 
-Use an OpenAI-compatible client adapter so LM Studio models can be configured by environment variables.
+Do not hard-code model names.
 
-Required model roles:
+Read models from environment/configuration.
 
-- `reasoning_model`: workbook planning, semantic interpretation, feedback interpretation, validation summaries
-- `vision_model`: screenshots, images, pasted charts, scanned forms, and diagram interpretation
-- `embedding_model`: semantic content-unit embeddings
+Suggested configuration:
 
-Do not hard-code model names. Discover available models and allow configuration through environment variables and a small settings file.
+```env
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LM_STUDIO_API_KEY=lm-studio
+LLM_MODEL=
+VLM_MODEL=
+EMBEDDING_MODEL=
+```
 
-### 6.5 Agent framework
+If a VLM is not configured, visual reasoning should be skipped rather than fail the full run.
 
-Use **LangChain Deep Agents** for the first implementation, behind an internal `AgentRuntime` interface.
+## Agent framework
 
-Reasons for this implementation choice:
+Use:
+- `langgraph`
 
-- The workflow needs planning and tool invocation.
-- Specialist tasks can be delegated without embedding orchestration logic in API routes.
-- The model provider remains configurable.
+Do not use a multi-agent architecture for MVP.
 
-Create a second empty adapter boundary for **Google ADK**. Do not implement both frameworks at the same time in the MVP.
+Implement one:
 
-The domain services and deterministic tools must not import Deep Agents directly. Only `infrastructure/agents/deepagents_runtime.py` should depend on the framework.
+> **Workbook Intelligence Agent**
+
+The agent should only be invoked when deterministic processing returns low confidence, an ambiguous region, or an explicit reprocessing request.
+
+## Storage
+
+Structured assets:
+- Parquet
+- DuckDB
+
+Run metadata:
+- SQLite initially
+
+Vectors:
+- LanceDB
+
+Graph:
+- NetworkX + JSON/GraphML
+
+Raw and normalized files:
+- local filesystem
 
 ---
 
-## 7. High-level architecture
+# 4. High-Level Architecture
 
 ```text
-React Web App
-     │
-     │ REST + SSE
-     ▼
-FastAPI API
-     │
-     ├── Workbook service
-     ├── Run service
-     ├── Review and feedback service
-     ├── Asset service
-     └── Model configuration service
-             │
-             ▼
-       Redis / RQ Worker
-             │
-             ▼
-   Workbook Processing Orchestrator
-             │
-     ┌───────┼───────────────────────────────┐
-     │       │                               │
-     ▼       ▼                               ▼
-Deterministic extraction tools      Agent runtime        Validation engine
-     │                               │                    │
-     ├── workbook profiler           ├── supervisor       ├── reconciliation
-     ├── region detector             ├── structure agent  ├── schema checks
-     ├── table normalizer            ├── semantic agent   ├── lineage checks
-     ├── formula parser              ├── visual agent     └── confidence scoring
-     ├── image extractor             └── validation agent
-     ├── chart extractor
-     ├── connection inspector
-     └── package writer
-             │
-             ▼
-   Canonical Workbook Knowledge Package
-             │
-     ┌───────┼────────────┬──────────────┐
-     ▼       ▼            ▼              ▼
- JSONL    Parquet       Images        Nodes/Edges
+                         Excel Workbook
+                              .xlsx
+                                |
+                                v
+                    +-----------------------+
+                    | Workbook Ingestion    |
+                    +-----------+-----------+
+                                |
+                                v
+                    +-----------------------+
+                    | Workbook Inspector    |
+                    | openpyxl / OOXML      |
+                    +-----------+-----------+
+                                |
+                                v
+                    +-----------------------+
+                    | Workbook Inventory    |
+                    | sheets / cells /      |
+                    | tables / formulas /   |
+                    | images / charts /     |
+                    | comments / names      |
+                    +-----------+-----------+
+                                |
+                                v
+                    +-----------------------+
+                    | Sheet Structure       |
+                    | Analyzer              |
+                    +-----------+-----------+
+                                |
+              +-----------------+------------------+
+              |                 |                  |
+              v                 v                  v
+       Structured Tables      Text            Images/Charts
+              |                 |                  |
+              +-----------------+------------------+
+                                |
+                                v
+                    +-----------------------+
+                    | Formula & Dependency  |
+                    | Analyzer              |
+                    +-----------+-----------+
+                                |
+                                v
+                    +-----------------------+
+                    | Confidence / Quality  |
+                    | Assessment            |
+                    +-----------+-----------+
+                                |
+                         low confidence?
+                         /            \
+                       no              yes
+                       |                |
+                       |                v
+                       |      +--------------------+
+                       |      | Workbook Agent     |
+                       |      | LM Studio + Tools  |
+                       |      +---------+----------+
+                       |                |
+                       +----------------+
+                                |
+                                v
+                    +-----------------------+
+                    | Normalization         |
+                    +-----------+-----------+
+                                |
+             +------------------+------------------+
+             |                  |                  |
+             v                  v                  v
+         DuckDB /          LanceDB             NetworkX
+          Parquet           Vectors              Graph
 ```
 
 ---
 
-## 8. Repository structure
+# 5. Repository Structure
 
-Create a monorepo with this structure:
+Create the project approximately as follows:
 
 ```text
-workbook-agent/
-├── CODEX.md
-├── README.md
-├── .env.example
-├── docker-compose.yml
-├── Makefile
-├── design_reference/
-├── frontend/
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── App.tsx
-│   │   │   ├── router.tsx
-│   │   │   └── providers.tsx
-│   │   ├── components/
-│   │   │   ├── layout/
-│   │   │   ├── common/
-│   │   │   ├── workbooks/
-│   │   │   ├── runs/
-│   │   │   ├── assets/
-│   │   │   └── review/
-│   │   ├── pages/
-│   │   │   ├── HomePage.tsx
-│   │   │   ├── WorkbooksPage.tsx
-│   │   │   ├── WorkbookDetailPage.tsx
-│   │   │   ├── RunHistoryPage.tsx
-│   │   │   ├── RunDetailPage.tsx
-│   │   │   └── SettingsPage.tsx
-│   │   ├── api/
-│   │   ├── hooks/
-│   │   ├── types/
-│   │   ├── utils/
-│   │   └── styles/
-│   └── tests/
-├── backend/
-│   ├── pyproject.toml
-│   ├── alembic.ini
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── core/
-│   │   │   ├── config.py
-│   │   │   ├── logging.py
-│   │   │   ├── errors.py
-│   │   │   └── security.py
-│   │   ├── api/
-│   │   │   ├── dependencies.py
-│   │   │   └── routes/
-│   │   │       ├── health.py
-│   │   │       ├── workbooks.py
-│   │   │       ├── runs.py
-│   │   │       ├── assets.py
-│   │   │       ├── reviews.py
-│   │   │       └── models.py
-│   │   ├── db/
-│   │   │   ├── base.py
-│   │   │   ├── session.py
-│   │   │   ├── models/
-│   │   │   └── migrations/
-│   │   ├── domain/
-│   │   │   ├── models/
-│   │   │   ├── schemas/
-│   │   │   ├── enums.py
-│   │   │   └── protocols.py
-│   │   ├── services/
-│   │   │   ├── workbook_service.py
-│   │   │   ├── run_service.py
-│   │   │   ├── feedback_service.py
-│   │   │   ├── asset_service.py
-│   │   │   ├── review_service.py
-│   │   │   └── package_service.py
-│   │   ├── processing/
-│   │   │   ├── orchestrator.py
-│   │   │   ├── stages.py
-│   │   │   ├── context.py
-│   │   │   ├── directives.py
-│   │   │   ├── confidence.py
-│   │   │   ├── extractors/
-│   │   │   ├── normalizers/
-│   │   │   ├── analyzers/
-│   │   │   ├── validators/
-│   │   │   └── package_writer/
-│   │   ├── agents/
-│   │   │   ├── runtime.py
-│   │   │   ├── supervisor.py
-│   │   │   ├── prompts/
-│   │   │   ├── tools/
-│   │   │   └── deepagents_runtime.py
-│   │   ├── llm/
-│   │   │   ├── client.py
-│   │   │   ├── model_registry.py
-│   │   │   ├── structured_output.py
-│   │   │   ├── vision.py
-│   │   │   └── embeddings.py
-│   │   ├── jobs/
-│   │   │   ├── queue.py
-│   │   │   └── tasks.py
-│   │   └── storage/
-│   │       ├── object_store.py
-│   │       ├── local_store.py
-│   │       └── paths.py
-│   └── tests/
-│       ├── unit/
-│       ├── integration/
-│       ├── fixtures/
-│       └── golden/
-└── scripts/
-    ├── seed_demo.py
-    ├── create_test_workbooks.py
-    └── verify_lmstudio.py
+excel-intelligence/
+|
+|-- app/
+|   |-- __init__.py
+|   |
+|   |-- api/
+|   |   |-- __init__.py
+|   |   `-- main.py
+|   |
+|   |-- ui/
+|   |   `-- streamlit_app.py
+|   |
+|   |-- config/
+|   |   |-- __init__.py
+|   |   `-- settings.py
+|   |
+|   |-- models/
+|   |   |-- __init__.py
+|   |   |-- workbook.py
+|   |   |-- region.py
+|   |   |-- assets.py
+|   |   `-- run.py
+|   |
+|   |-- pipeline/
+|   |   |-- __init__.py
+|   |   |-- orchestrator.py
+|   |   |-- ingest.py
+|   |   |-- inspect_workbook.py
+|   |   |-- detect_regions.py
+|   |   |-- extract_tables.py
+|   |   |-- extract_text.py
+|   |   |-- extract_images.py
+|   |   |-- extract_charts.py
+|   |   |-- parse_formulas.py
+|   |   |-- normalize.py
+|   |   `-- quality.py
+|   |
+|   |-- agents/
+|   |   |-- __init__.py
+|   |   `-- workbook_agent.py
+|   |
+|   |-- tools/
+|   |   |-- __init__.py
+|   |   |-- workbook_tools.py
+|   |   |-- formula_tools.py
+|   |   |-- rendering_tools.py
+|   |   `-- extraction_tools.py
+|   |
+|   |-- graph/
+|   |   |-- __init__.py
+|   |   `-- dependency_graph.py
+|   |
+|   |-- llm/
+|   |   |-- __init__.py
+|   |   `-- lmstudio_client.py
+|   |
+|   |-- storage/
+|   |   |-- __init__.py
+|   |   |-- metadata_store.py
+|   |   |-- structured_store.py
+|   |   |-- vector_store.py
+|   |   `-- graph_store.py
+|   |
+|   `-- services/
+|       |-- run_service.py
+|       `-- feedback_service.py
+|
+|-- data/
+|   |-- uploads/
+|   |-- processed/
+|   `-- outputs/
+|
+|-- tests/
+|   |-- unit/
+|   |-- integration/
+|   `-- fixtures/
+|
+|-- scripts/
+|   `-- create_sample_workbooks.py
+|
+|-- .env.example
+|-- pyproject.toml
+|-- README.md
+`-- CODEX.md
 ```
 
----
-
-## 9. Core domain entities
-
-### 9.1 Workbook
-
-Fields:
-
-- `id`
-- `original_filename`
-- `display_name`
-- `file_type`
-- `file_size_bytes`
-- `sha256`
-- `storage_uri`
-- `purpose`
-- `description`
-- `created_at`
-- `updated_at`
-- `latest_run_id`
-- `latest_status`
-- `latest_confidence`
-- `is_archived`
-
-A workbook appears once in **My Workbooks**, regardless of the number of runs.
-
-### 9.2 ProcessingRun
-
-Fields:
-
-- `id`
-- `workbook_id`
-- `parent_run_id`
-- `run_number`
-- `trigger_type`: `initial`, `manual_rerun`, `feedback_rerun`, `retry`
-- `scope`: `full_workbook`, `selected_sheets`, `selected_assets`, `impacted_assets`
-- `status`: `queued`, `profiling`, `planning`, `extracting`, `interpreting`, `validating`, `packaging`, `needs_review`, `completed`, `failed`, `cancelled`
-- `current_stage`
-- `progress_percent`
-- `started_at`
-- `completed_at`
-- `duration_seconds`
-- `overall_confidence`
-- `output_unit_count`
-- `error_code`
-- `error_message`
-- `accepted_at`
-
-Each run appears separately in **Run History**.
-
-### 9.3 Feedback
-
-Fields:
-
-- `id`
-- `run_id`
-- `workbook_id`
-- `raw_text`
-- `feedback_type`
-- `scope_type`
-- `scope_ids`
-- `created_at`
-- `created_by`
-- `parsed_directives`
-- `parse_confidence`
-- `status`: `draft`, `parsed`, `approved`, `applied`, `rejected`
-
-### 9.4 ProcessingDirective
-
-Use a typed discriminated union. Initial directive types:
-
-- `override_header_row`
-- `ignore_rows`
-- `ignore_columns`
-- `exclude_sheet`
-- `include_hidden_sheet`
-- `rename_table`
-- `rename_column`
-- `confirm_semantic_mapping`
-- `reject_semantic_mapping`
-- `confirm_relationship`
-- `reject_relationship`
-- `set_sheet_role`
-- `set_region_type`
-- `exclude_visual_asset`
-- `correct_visual_interpretation`
-- `set_business_context`
-- `set_unit_or_currency`
-- `preserve_approved_assets`
-- `force_reprocess_asset`
-
-Every directive must contain:
-
-- `directive_id`
-- `type`
-- `target`
-- `parameters`
-- `source_feedback_id`
-- `confidence`
-- `requires_confirmation`
-
-### 9.5 Asset
-
-Store a lightweight asset index in the database and the complete content in object storage.
-
-Fields:
-
-- `id`
-- `run_id`
-- `workbook_id`
-- `parent_asset_id`
-- `asset_type`
-- `title`
-- `summary`
-- `source_uri`
-- `content_uri`
-- `preview_uri`
-- `source_sheet`
-- `source_range`
-- `confidence`
-- `review_status`
-- `is_approved`
-- `created_at`
-
-Asset types:
-
-- `workbook_manifest`
-- `workbook_summary`
-- `sheet`
-- `region`
-- `table`
-- `column`
-- `record`
-- `form_record`
-- `formula`
-- `business_rule`
-- `named_range`
-- `query`
-- `connection`
-- `image`
-- `chart`
-- `comment`
-- `semantic_unit`
-- `embedding_chunk`
-- `entity`
-- `relationship`
-- `lineage_edge`
-- `quality_issue`
-- `review_item`
-
-### 9.6 ReviewItem
-
-Fields:
-
-- `id`
-- `run_id`
-- `asset_id`
-- `review_type`
-- `title`
-- `description`
-- `evidence`
-- `suggested_action`
-- `confidence`
-- `severity`
-- `status`: `open`, `confirmed`, `corrected`, `rejected`, `ignored`
-- `resolution`
-- `resolved_at`
+Avoid unnecessary abstraction layers in the first implementation.
 
 ---
 
-## 10. Canonical Workbook Knowledge Package
+# 6. Core Data Model
 
-Each completed run must create this package:
+Use Pydantic models.
+
+## Workbook
+
+Minimum fields:
 
 ```text
-storage/workbooks/{workbook_id}/runs/{run_id}/package/
-├── manifest.json
-├── workbook_summary.json
-├── metadata/
-│   ├── sheets.jsonl
-│   ├── regions.jsonl
-│   ├── tables.jsonl
-│   ├── columns.jsonl
-│   ├── formulas.jsonl
-│   ├── named_ranges.jsonl
-│   ├── queries.jsonl
-│   ├── connections.jsonl
-│   ├── charts.jsonl
-│   └── images.jsonl
-├── structured_data/
-│   ├── {normalized_table_id}.parquet
-│   └── ...
-├── semantic_units/
-│   ├── workbook_units.jsonl
-│   ├── sheet_units.jsonl
-│   ├── table_units.jsonl
-│   ├── record_units.jsonl
-│   ├── formula_units.jsonl
-│   └── visual_units.jsonl
-├── graph/
-│   ├── nodes.jsonl
-│   └── edges.jsonl
-├── media/
-│   ├── images/
-│   └── embedded_files/
-├── embedding_input/
-│   └── chunks.jsonl
-├── quality/
-│   ├── validation_report.json
-│   ├── issues.jsonl
-│   └── review_items.jsonl
-└── lineage/
-    ├── technical_lineage.jsonl
-    └── business_lineage.jsonl
+workbook_id
+run_id
+filename
+file_path
+file_hash
+file_size_bytes
+created_at
+sheet_count
+formula_count
+table_count
+image_count
+chart_count
+named_range_count
+hidden_sheet_count
+processing_status
+overall_quality_score
 ```
 
-### 10.1 Canonical content unit
+## Sheet
 
-Implement this as a Pydantic model:
-
-```json
-{
-  "unit_id": "wb_001.sheet_03.table_02.row_015",
-  "unit_type": "table_record",
-  "title": "Equipment inspection record EQ-2034",
-  "text_content": "Equipment EQ-2034 was inspected on 14 August 2026. A crack was observed near the inlet valve. The status is Requires Maintenance.",
-  "structured_content": {
-    "equipment_id": "EQ-2034",
-    "inspection_date": "2026-08-14",
-    "observation": "Crack near inlet valve",
-    "status": "Requires Maintenance"
-  },
-  "semantic_context": {
-    "domain": "Equipment Maintenance",
-    "entity_type": "Equipment Inspection",
-    "business_terms": ["Equipment", "Inspection", "Maintenance Status"]
-  },
-  "structural_context": {
-    "workbook_id": "wb_001",
-    "sheet_id": "sheet_03",
-    "sheet_name": "Inspection",
-    "region_id": "region_04",
-    "table_id": "table_02",
-    "row_number": 15
-  },
-  "media_references": ["wb_001.sheet_03.image_008"],
-  "relationships": [
-    {
-      "type": "INSPECTION_OF",
-      "target_id": "equipment.EQ-2034"
-    }
-  ],
-  "provenance": {
-    "source_file": "equipment_inspection.xlsx",
-    "source_range": "A15:H15",
-    "source_cells": ["A15", "B15", "C15", "D15", "E15", "F15", "G15", "H15"],
-    "extraction_method": "table_parser",
-    "processor_version": "0.1.0"
-  },
-  "quality": {
-    "extraction_confidence": 0.98,
-    "semantic_confidence": 0.91,
-    "validation_status": "passed"
-  },
-  "embedding_status": "ready",
-  "entity_extraction_status": "ready"
-}
+```text
+sheet_id
+workbook_id
+name
+index
+visibility
+max_row
+max_column
+non_empty_cells
+formula_count
+table_count
+image_count
+chart_count
+merged_range_count
+region_count
 ```
 
-### 10.2 Embedding chunk
+## Region
 
-```json
-{
-  "chunk_id": "chunk.wb_001.sheet_03.table_02.row_015",
-  "chunk_type": "table_record",
-  "embedding_text": "For the East region and Consumer Electronics category, forecast revenue for August 2026 is INR 5.8 million based on a growth assumption of 7.5 percent.",
-  "metadata": {
-    "workbook_id": "wb_001",
-    "run_id": "run_018",
-    "sheet_name": "Regional Forecast",
-    "table_name": "Regional Sales Forecast",
-    "region": "East",
-    "product_category": "Consumer Electronics",
-    "forecast_month": "2026-08",
-    "source_range": "A15:H15"
-  },
-  "source_unit_id": "wb_001.sheet_03.table_02.row_015"
-}
+```text
+region_id
+sheet_id
+range
+region_type
+confidence
+detected_by
+requires_agent_review
+agent_review_status
 ```
 
-Rules:
+Allowed initial region types:
 
-- Never embed isolated values without labels and context.
-- Do not create one embedding per cell.
-- Use workbook, sheet, table, record, formula, visual, and relationship-level semantic units.
-- Include source metadata with every chunk.
-- Keep derived insights clearly marked as derived.
+```text
+title
+header
+table
+summary_table
+kpi_block
+narrative
+notes
+image
+chart
+empty
+unknown
+```
 
-### 10.3 Graph edge
+## TableAsset
 
-```json
-{
-  "edge_id": "edge_00157",
-  "source_id": "wb_001.sheet_03.table_02",
-  "relationship_type": "DERIVED_FROM",
-  "target_id": "wb_001.sheet_02.table_01",
-  "relationship_description": "The regional forecast table is derived from historical sales data.",
-  "evidence": ["formula_reference", "query_dependency"],
-  "confidence": 0.97,
-  "provenance": {
-    "source_sheet": "Regional Forecast",
-    "source_range": "H15:H200"
-  }
-}
+```text
+table_id
+workbook_id
+sheet_id
+region_id
+table_name
+source_range
+columns
+row_count
+parquet_path
+duckdb_table
+quality_score
+```
+
+## TextAsset
+
+```text
+text_asset_id
+workbook_id
+sheet_id
+region_id
+source_range
+content
+content_type
+embedding_status
+```
+
+## FormulaAsset
+
+```text
+formula_id
+workbook_id
+sheet_id
+cell
+formula
+cached_value
+referenced_cells
+referenced_ranges
+referenced_sheets
+external_reference
+parse_status
+```
+
+## GraphEdge
+
+```text
+source
+target
+relationship
+metadata
+```
+
+Initial relationships:
+
+```text
+DEPENDS_ON
+BELONGS_TO
+DERIVED_FROM
+CONTAINS
+REFERENCES
 ```
 
 ---
 
-## 11. Processing pipeline
+# 7. Workbook Inspection Requirements
 
-Implement the pipeline as explicit, restartable stages. Each stage writes durable intermediate outputs and emits progress events.
+Implement deterministic workbook inspection first.
 
-### Stage 0: Intake and safety
+For each workbook capture:
 
-- Validate extension and MIME signature.
-- Calculate SHA-256.
-- Copy original file to immutable object storage.
-- Detect encryption/protection.
-- Detect macros, embedded objects, and external links.
-- Reject unsupported or unsafe content with a clear error.
-- Never execute workbook code.
+- workbook filename
+- workbook metadata
+- sheet names
+- sheet ordering
+- visible / hidden / veryHidden state
+- sheet dimensions
+- non-empty cells
+- formulas
+- cached values where available
+- merged cells
+- Excel Table objects
+- named ranges
+- comments
+- hyperlinks
+- images
+- charts
+- external links where identifiable
+- presence of macros / unsupported features where detectable
 
-### Stage 1: Workbook profiling
+Never execute VBA or macros.
 
-Create a deterministic manifest containing:
+For `.xlsm`, either:
+1. reject in MVP with clear unsupported status, or
+2. inspect safely without macro execution if implementation is straightforward.
 
-- Workbook properties
-- Sheet names and visibility
-- Used ranges
-- Tables
-- Merged cells
-- Formula counts
-- Named ranges
-- Comments/notes
-- Charts
-- Images/shapes
-- Pivot metadata where accessible
-- Query/connection metadata where accessible
-- External workbook references
-- Macro presence
-- Protection state
+Primary MVP support is `.xlsx`.
 
-### Stage 2: Complexity classification
+---
 
-Score independently:
+# 8. Dual Workbook Loading
 
-- Layout complexity
-- Data complexity
-- Dependency complexity
-- Computation complexity
-- Connectivity complexity
-- Visual complexity
-- Semantic complexity
-- Automation complexity
+Where useful, load workbooks in both modes:
 
-Also infer one or more workbook archetypes:
+```python
+formula_wb = openpyxl.load_workbook(
+    path,
+    data_only=False,
+    read_only=False
+)
 
-- flat dataset
-- multi-table data package
-- human-readable report
-- analytical model
-- BI workbook
-- operational application
+value_wb = openpyxl.load_workbook(
+    path,
+    data_only=True,
+    read_only=False
+)
+```
 
-The agent can help interpret the profile, but the score must include deterministic evidence.
+Preserve both:
 
-### Stage 3: Processing plan
+- formula expression
+- cached/computed value
 
-The supervisor creates a structured plan that selects only the required tools. Store the plan as JSON.
+Do not silently replace formulas with values.
+
+---
+
+# 9. Sheet Region Detection
+
+This is a core capability.
+
+A sheet may contain multiple logical regions and cannot be assumed to equal one table.
+
+Implement deterministic region detection using features including:
+
+- contiguous non-empty cells
+- blank row separators
+- blank column separators
+- cell density
+- merged cells
+- borders
+- fills
+- fonts
+- bold text
+- number formats
+- formula density
+- repeated data types
+- header-like rows
+- row/column continuity
+- Excel Table ranges
+- relative location
+- neighboring labels
+- known titles
+
+Return regions with confidence scores.
 
 Example:
 
 ```json
 {
-  "workbook_archetype": "analytical_model",
-  "steps": [
-    "detect_regions",
-    "extract_tables",
-    "parse_formula_dependencies",
-    "classify_input_calculation_output_sheets",
-    "process_visual_assets",
-    "generate_semantic_units",
-    "validate_reconciliations"
-  ],
-  "excluded_steps": ["full_macro_analysis"],
-  "reasoning_summary": "The workbook contains multiple calculation sheets, cross-sheet formulas, assumptions, and a dashboard."
+  "sheet": "Executive Summary",
+  "regions": [
+    {
+      "range": "A1:H2",
+      "type": "title",
+      "confidence": 0.98
+    },
+    {
+      "range": "A4:H20",
+      "type": "summary_table",
+      "confidence": 0.91
+    },
+    {
+      "range": "A23:H26",
+      "type": "narrative",
+      "confidence": 0.84
+    },
+    {
+      "range": "J4:N10",
+      "type": "unknown",
+      "confidence": 0.55,
+      "requires_agent_review": true
+    }
+  ]
 }
 ```
 
-Do not store hidden chain-of-thought. Store only a concise decision summary and evidence.
+Initial agent escalation threshold:
 
-### Stage 4: Sheet and region understanding
+```text
+confidence < 0.70
+```
 
-Detect and classify regions:
+Make threshold configurable.
 
-- table
-- repeated block
-- form
-- label-value area
-- summary
-- lookup/reference
-- assumptions/input
-- calculation
-- chart-source area
-- dashboard
-- notes
-- decorative area
-
-Persist coordinates and confidence.
-
-### Stage 5: Structured extraction and normalization
-
-- Detect headers and multi-row headers.
-- Normalize column names while preserving originals.
-- Infer data types.
-- Preserve units, currencies, and date semantics.
-- Separate transaction rows from subtotals and notes.
-- Normalize repeated blocks.
-- Unpivot matrices when appropriate.
-- Generate Parquet outputs.
-- Generate row-level provenance maps.
-
-### Stage 6: Formula and dependency analysis
-
-Create:
-
-- Cell-to-cell dependencies
-- Range dependencies
-- Cross-sheet dependencies
-- Named-range dependencies
-- Table-reference dependencies
-- Lookup-based join candidates
-- External-workbook dependencies
-- Formula pattern groups
-- Formula inconsistencies and hard-coded overrides
-- Circular-reference indicators
-- Broken-reference indicators
-
-Convert formulas into:
-
-- Original Excel expression
-- Normalized expression
-- Natural-language business-rule text
-- Inputs
-- Output
-- Formula category
-- Technical lineage
-- Business lineage candidate
-
-Do not claim that formula values were recalculated unless an actual supported calculation engine performed the calculation.
-
-### Stage 7: Visual and multimodal processing
-
-For every image or visual object:
-
-1. Extract the binary asset.
-2. Record sheet, anchor cell, coordinates, and nearby context.
-3. Deduplicate by perceptual or binary hash.
-4. Classify as decorative, screenshot, scanned table, photograph, chart image, process diagram, signature/stamp, document excerpt, or unknown.
-5. Route to OCR, table extraction, or VLM only when useful.
-6. Generate a concise description.
-7. Associate the visual with the nearest relevant record, region, table, form field, or dashboard element.
-8. Create review items for low-confidence interpretations.
-
-Decorative logos should not become embedding chunks by default.
-
-### Stage 8: Semantic asset generation
-
-Generate:
-
-- Workbook summary
-- Sheet summaries
-- Region summaries
-- Table descriptions
-- Column descriptions
-- Record-level semantic text where valuable
-- Formula and rule descriptions
-- Image descriptions
-- Chart summaries
-- Comment/note units
-- Business terms
-- Entity candidates
-- Relationship candidates
-
-The LLM must return validated structured JSON matching Pydantic schemas.
-
-### Stage 9: Validation and reconciliation
-
-Run deterministic checks:
-
-- Extracted row counts
-- Header/data consistency
-- Data type consistency
-- Duplicate records
-- Formula pattern anomalies
-- Broken references
-- Missing external sources
-- Reconstructed totals where feasible
-- Source-to-normalized traceability
-- Every semantic unit has provenance
-- Every graph edge has evidence
-- Every image has a source location
-
-Create component-level confidence scores rather than one opaque score.
-
-### Stage 10: Review queue
-
-Create review items only when action is useful. Examples:
-
-- uncertain header row
-- probable cross-sheet key mapping
-- ambiguous blank-value interpretation
-- possible table boundary
-- uncertain image interpretation
-- missing external dependency
-- conflicting metric definitions
-- suspected hard-coded override
-
-### Stage 11: Package creation
-
-Write the complete package, index its assets, generate a ZIP download, and mark the run completed or needs review.
+Do not send the whole workbook to the LLM merely because one region is ambiguous.
 
 ---
 
-## 12. Agent design
+# 10. Table Extraction
 
-### 12.1 Core rule
+Handle two table types.
 
-The agent does not directly manipulate files or databases. It calls typed tools. Tools perform deterministic actions and return structured results.
+## A. Native Excel Tables
 
-### 12.2 Supervisor agent
+If openpyxl exposes an Excel Table object:
+
+- use its explicit range
+- preserve table name
+- preserve headers
+- convert to Polars DataFrame
+- normalize column names
+- write Parquet
+- register in DuckDB
+
+## B. Inferred Tables
+
+For detected tabular regions:
+
+- identify header row
+- infer columns
+- preserve original cell coordinates
+- convert to DataFrame
+- avoid dropping rows silently
+- record parsing warnings
+- assign quality score
+
+Keep provenance from each table back to:
+
+```text
+workbook -> sheet -> region -> cell range
+```
+
+---
+
+# 11. Formula Processing
+
+Extract every formula cell.
+
+For each formula determine where possible:
+
+- same-sheet cell dependencies
+- same-sheet range dependencies
+- cross-sheet cell dependencies
+- cross-sheet range dependencies
+- named range references
+- external workbook references
+- unsupported/dynamic constructs
+
+Examples:
+
+```text
+=SUM(D5:D20)
+=Sales!D20
+=Sales!D20/Targets!B4
+='Lookup Values'!C7
+```
+
+Produce normalized dependency edges.
+
+Example:
+
+```text
+Summary!B7 --DEPENDS_ON--> Sales!D20
+Summary!B7 --DEPENDS_ON--> Targets!B4
+```
+
+Avoid expanding very large ranges into millions of individual graph nodes.
+
+For a formula referencing a range such as:
+
+```text
+Sales!D5:D50000
+```
+
+represent the range as a range node or summarized dependency unless cell-level expansion is explicitly requested.
+
+---
+
+# 12. Formula Graph
+
+Use NetworkX.
+
+Recommended node types:
+
+```text
+WORKBOOK
+SHEET
+REGION
+TABLE
+CELL
+RANGE
+NAMED_RANGE
+IMAGE
+CHART
+TEXT_ASSET
+```
+
+Recommended edges:
+
+```text
+CONTAINS
+BELONGS_TO
+DEPENDS_ON
+REFERENCES
+DERIVED_FROM
+```
+
+Graph must support questions such as:
+
+- What formulas contribute to this KPI?
+- Which sheets are dependencies of the Summary sheet?
+- Which cells depend on Targets!B4?
+- Which tables contribute to an Executive Summary?
+- Which sheets contain no dependencies?
+
+Persist:
+
+```text
+dependency_graph.json
+dependency_graph.graphml
+```
+
+---
+
+# 13. Free Text Extraction
+
+Extract narrative information including:
+
+- titles
+- notes
+- comments
+- text blocks
+- management commentary
+- instructions
+- labels not belonging to tables
+
+Preserve:
+
+```text
+workbook
+sheet
+range
+region_type
+content
+```
+
+Chunking must be region-aware.
+
+Do not split every cell into an independent vector chunk.
+
+Preferred semantic unit:
+
+```text
+workbook -> sheet -> region
+```
+
+---
+
+# 14. Images and Charts
+
+## Images
+
+Extract embedded images where openpyxl/OOXML permits.
+
+Store locally:
+
+```text
+data/outputs/<run_id>/images/
+```
+
+Create metadata containing:
+
+```text
+sheet
+anchor/cell location
+filename
+mime type
+width
+height
+```
+
+If a VLM is configured:
+- optionally generate a description
+- optionally classify visual content
+- store description as a TextAsset
+
+## Charts
+
+For MVP:
+
+- identify chart objects
+- capture title/type if available
+- record anchor
+- record referenced series/ranges where possible
+- optionally render visually
+- optionally send rendered visual to VLM
+
+Do not attempt to reconstruct every Excel chart behavior.
+
+---
+
+# 15. LibreOffice Rendering
+
+Implement a rendering service.
 
 Responsibilities:
 
-- Read the workbook profile.
-- Select the processing path.
-- Call specialist tools.
-- Request specialist semantic interpretation only where needed.
-- Track unresolved issues.
-- Trigger validation.
-- Produce a concise completion summary.
+- detect whether LibreOffice is installed
+- expose availability in UI/system status
+- copy workbook to temporary path before modifying/recalculating
+- never overwrite original upload
+- optionally recalculate copy
+- export workbook to PDF
+- convert PDF pages to PNG using PyMuPDF
 
-The supervisor must not:
+Example command pattern:
 
-- Execute arbitrary code.
-- Execute workbook macros.
-- Modify the original workbook.
-- Invent worksheet content.
-- Mark an output as validated without evidence.
+```bash
+soffice --headless --convert-to pdf --outdir <output_dir> <input.xlsx>
+```
 
-### 12.3 Specialist capabilities
+Treat rendering as optional enrichment.
 
-Implement these initially as tools plus focused prompts. They may become subagents later.
-
-1. **Structure interpreter**
-   - Determines sheet roles and region meanings from deterministic profile evidence.
-
-2. **Formula and lineage interpreter**
-   - Converts formula graphs into understandable rules and business lineage.
-
-3. **Visual interpreter**
-   - Describes and classifies image assets using the VLM.
-
-4. **Semantic mapper**
-   - Maps fields and assets to business concepts and finds entity/relationship candidates.
-
-5. **Validation reviewer**
-   - Summarizes deterministic validation failures and recommends review actions.
-
-6. **Feedback interpreter**
-   - Converts user feedback into typed processing directives.
-
-### 12.4 Required tool contracts
-
-Create typed tools for:
-
-- `get_workbook_manifest`
-- `get_sheet_profile`
-- `detect_sheet_regions`
-- `extract_region_table`
-- `normalize_table`
-- `get_formula_graph`
-- `get_formula_pattern_anomalies`
-- `get_named_ranges`
-- `get_external_dependencies`
-- `get_visual_assets`
-- `describe_visual_asset`
-- `generate_semantic_units`
-- `infer_entity_candidates`
-- `infer_relationship_candidates`
-- `validate_assets`
-- `create_review_item`
-- `get_previous_run_feedback`
-- `apply_processing_directives`
-- `calculate_impacted_assets`
-- `write_knowledge_package`
-
-Each tool must:
-
-- Validate input with Pydantic.
-- Return structured output.
-- Log duration and status.
-- Be idempotent for the same run and input hash.
-- Store large results in object storage and return references.
-
-### 12.5 Local-model reliability controls
-
-Local models may vary in tool-calling and structured-output quality. Implement:
-
-- JSON schema validation
-- Automatic repair attempt with strict retry limit
-- Maximum agent steps
-- Maximum retries per tool
-- Timeouts
-- Model capability check
-- Fallback structured planning prompt when native tool calls fail
-- Deterministic default processing path if the agent is unavailable
-- No infinite planning or self-reflection loop
-
-The application must still create a partial deterministic package when the LLM is unavailable. Mark semantic stages as incomplete and show a clear status.
+The processing pipeline must still produce structured/formula outputs if rendering fails.
 
 ---
 
-## 13. Feedback-driven reprocessing
+# 16. LM Studio Client
 
-### 13.1 User experience
+Implement one centralized LM Studio client.
 
-The user can click **Reprocess** from a workbook or run.
+Use OpenAI-compatible APIs.
 
-Show a right-side drawer with:
+Configuration must be environment-driven.
 
-- Free-text feedback
-- Apply to: entire workbook, selected sheets, selected assets, impacted assets
-- Sheet/asset selectors when relevant
-- Preserve confirmed entities and mappings
-- Preserve approved table structures
-- Reprocess only impacted assets
-- Start Reprocessing
-
-### 13.2 Feedback interpretation flow
+Methods should support:
 
 ```text
-User feedback
-    ↓
-Feedback interpreter
-    ↓
-Typed directives
-    ↓
-User confirmation when directive is ambiguous or destructive
-    ↓
-Impact analysis
-    ↓
-New child run
-    ↓
-Reuse unaffected approved assets
-    ↓
-Reprocess impacted stages
-    ↓
-Validate
-    ↓
-Compare runs
+chat_completion()
+structured_completion()
+tool_calling()
+vision_completion()
+embedding()
+health_check()
 ```
 
-Example feedback:
+Use structured JSON responses for agent classifications whenever possible.
+
+Set timeouts.
+
+Handle LM Studio being unavailable without crashing deterministic processing.
+
+---
+
+# 17. Workbook Intelligence Agent
+
+Implement one LangGraph agent.
+
+Purpose:
+
+> Resolve ambiguity and perform selective remediation, not primary workbook parsing.
+
+Agent invocation scenarios:
+
+1. Region confidence below threshold.
+2. Conflicting deterministic signals.
+3. User requests reprocessing.
+4. Table/header inference fails.
+5. Visually complex dashboard or summary region.
+6. Quality validation finds suspicious extraction.
+
+Do not invoke agent for:
+
+- listing sheets
+- extracting known Excel tables
+- extracting formulas
+- identifying explicit formula references
+- enumerating comments
+- normal cell reading
+- image extraction
+
+---
+
+# 18. Agent Tools
+
+Expose narrow, safe tools such as:
 
 ```text
-The first two rows in Forecast are titles. Treat row 3 as the header. Customer No and Account ID are the same identifier.
+list_sheets(workbook_id)
+
+get_sheet_summary(workbook_id, sheet_name)
+
+inspect_range(workbook_id, sheet_name, cell_range)
+
+get_values(workbook_id, sheet_name, cell_range)
+
+get_formulas(workbook_id, sheet_name, cell_range)
+
+get_styles(workbook_id, sheet_name, cell_range)
+
+get_tables(workbook_id, sheet_name)
+
+get_named_ranges(workbook_id)
+
+get_images(workbook_id, sheet_name)
+
+get_charts(workbook_id, sheet_name)
+
+render_sheet(workbook_id, sheet_name)
+
+render_range(workbook_id, sheet_name, cell_range)
+
+trace_dependencies(workbook_id, sheet_name, cell)
+
+extract_region(workbook_id, sheet_name, cell_range, extraction_type)
 ```
 
-Parsed directives:
+Tool outputs must be bounded.
 
-```json
-[
-  {
-    "type": "override_header_row",
-    "target": {"sheet_name": "Forecast"},
-    "parameters": {"header_row": 3, "ignore_rows": [1, 2]},
-    "requires_confirmation": false
-  },
-  {
-    "type": "confirm_semantic_mapping",
-    "target": {
-      "source_field": "Orders.Customer No",
-      "target_field": "Customer Master.Account ID"
-    },
-    "parameters": {"enterprise_term": "Customer Identifier"},
-    "requires_confirmation": false
-  }
-]
+Never return an entire massive workbook through one tool result.
+
+---
+
+# 19. Agent Decision Pattern
+
+The agent should follow:
+
+```text
+Inspect
+  |
+Reason
+  |
+Call smallest required tool
+  |
+Observe
+  |
+Need more evidence?
+ /             \
+yes             no
+ |               |
+Call tool      Classify / remediate
+                 |
+              Validate
+                 |
+              Return result
 ```
 
-### 13.3 Impact analysis
+Set maximum tool iterations.
 
-Maintain an asset dependency graph. A directive should identify impacted assets.
+Suggested MVP:
+
+```text
+MAX_AGENT_STEPS = 8
+```
+
+---
+
+# 20. Agent Response Schema
+
+Require structured output.
 
 Example:
-
-```text
-Header override on Forecast sheet
-  → Forecast table schema
-  → Forecast records
-  → Formula references using that table
-  → Formula semantic units
-  → Related entities and relationships
-  → Embedding chunks
-  → Validation report
-```
-
-Do not automatically invalidate unrelated sheets or images.
-
-### 13.4 Run comparison
-
-Compare:
-
-- Tables added, changed, removed
-- Record counts
-- Semantic units
-- Entities
-- Relationships
-- Rules
-- Review items
-- Confidence
-- Applied directives
-
-Allow the user to accept a run as the current version.
-
----
-
-## 14. API specification
-
-Use `/api/v1` prefix.
-
-### 14.1 Health and model configuration
-
-```text
-GET  /api/v1/health
-GET  /api/v1/models/status
-GET  /api/v1/models
-PUT  /api/v1/models/config
-```
-
-Model status must show:
-
-- LM Studio reachable
-- Available model identifiers
-- Configured reasoning model
-- Configured vision model
-- Configured embedding model
-- Basic capability check result
-
-### 14.2 Workbooks
-
-```text
-POST   /api/v1/workbooks
-GET    /api/v1/workbooks
-GET    /api/v1/workbooks/{workbook_id}
-PATCH  /api/v1/workbooks/{workbook_id}
-DELETE /api/v1/workbooks/{workbook_id}
-POST   /api/v1/workbooks/{workbook_id}/runs
-```
-
-Upload uses multipart form data:
-
-- `file`
-- `purpose`
-- `description`
-
-Support pagination, search, and filters.
-
-### 14.3 Runs
-
-```text
-GET  /api/v1/runs
-GET  /api/v1/runs/{run_id}
-GET  /api/v1/runs/{run_id}/events
-POST /api/v1/runs/{run_id}/cancel
-POST /api/v1/runs/{run_id}/retry
-POST /api/v1/runs/{run_id}/accept
-GET  /api/v1/runs/{run_id}/compare/{other_run_id}
-```
-
-`/events` uses Server-Sent Events.
-
-Event structure:
 
 ```json
 {
-  "event_id": "evt_001",
-  "run_id": "run_018",
-  "timestamp": "2026-08-21T10:32:00Z",
-  "stage": "formula_analysis",
-  "status": "in_progress",
-  "progress_percent": 46,
-  "message": "Analyzing formulas and cross-sheet dependencies",
-  "details": {
-    "formulas_processed": 1240,
-    "formulas_total": 2418
-  }
+  "region_id": "region_123",
+  "classification": "kpi_block",
+  "confidence": 0.91,
+  "reason_summary": "Compact label-value formula section with consistent KPI formatting.",
+  "recommended_processing": "extract_as_key_value_summary",
+  "requires_human_review": false
 }
 ```
 
-### 14.4 Assets
+Store only concise reason summaries.
+
+Do not depend on hidden chain-of-thought.
+
+---
+
+# 21. Confidence and Quality
+
+Create explainable quality metrics.
+
+Suggested components:
 
 ```text
-GET /api/v1/runs/{run_id}/assets
-GET /api/v1/assets/{asset_id}
-GET /api/v1/assets/{asset_id}/preview
-GET /api/v1/assets/{asset_id}/download
-GET /api/v1/runs/{run_id}/package/download
+structure_detection_score
+table_extraction_score
+formula_parse_score
+dependency_resolution_score
+text_extraction_score
+visual_processing_score
+agent_confidence
 ```
 
-Filters:
+Overall workbook score should be an aggregate.
 
-- asset type
+Store warnings separately.
+
+Examples:
+
+```text
+BROKEN_FORMULA_REFERENCE
+EXTERNAL_WORKBOOK_REFERENCE
+LOW_CONFIDENCE_REGION
+UNSUPPORTED_MACRO
+VLM_UNAVAILABLE
+LIBREOFFICE_UNAVAILABLE
+TABLE_HEADER_UNCERTAIN
+```
+
+---
+
+# 22. Local Output Contract
+
+Each processing run should produce:
+
+```text
+data/outputs/<run_id>/
+|
+|-- manifest.json
+|
+|-- metadata/
+|   |-- workbook.json
+|   |-- sheets.json
+|   `-- regions.json
+|
+|-- tables/
+|   |-- <table_id>.parquet
+|   `-- ...
+|
+|-- text/
+|   `-- text_assets.jsonl
+|
+|-- formulas/
+|   `-- formulas.jsonl
+|
+|-- graph/
+|   |-- dependency_graph.json
+|   `-- dependency_graph.graphml
+|
+|-- images/
+|   `-- ...
+|
+|-- renders/
+|   `-- ...
+|
+`-- quality/
+    `-- quality_report.json
+```
+
+---
+
+# 23. DuckDB Schema
+
+Create initial logical tables such as:
+
+```text
+runs
+workbooks
+sheets
+regions
+table_assets
+text_assets
+formula_assets
+graph_edges
+processing_warnings
+feedback
+```
+
+Keep database schema simple and versionable.
+
+---
+
+# 24. Vector Storage
+
+Use LanceDB.
+
+Embed only useful semantic content.
+
+Candidates:
+
+- narrative regions
+- comments
+- workbook summary
+- sheet summaries
+- table descriptions
+- chart/VLM descriptions
+- optionally row groups for selected tables
+
+Do not automatically embed every cell.
+
+Each vector record should retain metadata:
+
+```text
+workbook_id
+sheet_name
+region_id
+asset_type
+source_range
+table_id
+```
+
+---
+
+# 25. Workbook / Sheet Summaries
+
+Use LLM only after deterministic extraction has produced compact metadata.
+
+Do not pass raw full workbook contents.
+
+Possible input:
+
+```json
+{
+  "sheet": "Executive Summary",
+  "tables": ["Regional Performance"],
+  "kpi_regions": ["J4:N10"],
+  "narrative_regions": ["A23:H26"],
+  "formula_dependency_sheets": ["Sales", "Targets"],
+  "images": 1,
+  "charts": 2
+}
+```
+
+Generate concise summaries such as:
+
+```text
+Executive summary sheet containing regional performance KPIs,
+management commentary and two charts. Metrics are primarily
+derived from Sales and Targets sheets.
+```
+
+---
+
+# 26. UI Requirements
+
+Use Streamlit.
+
+Keep MVP to three views.
+
+## View 1 — Upload / Process
+
+Show:
+
+- drag/drop `.xlsx`
+- file name
+- Process button
+- LM Studio status
+- LibreOffice status
+- current processing stage
+- basic completion status
+
+## View 2 — Workbook Results
+
+Header metrics:
+
+```text
+Sheets
+Tables
+Formulas
+Images
+Charts
+Dependencies
+Quality Score
+Review Required
+```
+
+Below:
+
+- sheet list
+- discovered assets
+- warnings
+- low-confidence regions
+
+Allow user to inspect a sheet.
+
+## View 3 — Review / Reprocess
+
+For a selected low-confidence region show:
+
 - sheet
-- review status
-- confidence range
-- search
+- cell range
+- detected type
+- confidence
+- sample values
+- optional render
+- agent result
 
-### 14.5 Review
-
-```text
-GET  /api/v1/runs/{run_id}/review-items
-POST /api/v1/review-items/{review_item_id}/confirm
-POST /api/v1/review-items/{review_item_id}/correct
-POST /api/v1/review-items/{review_item_id}/reject
-POST /api/v1/review-items/{review_item_id}/ignore
-```
-
-### 14.6 Feedback and reprocessing
+User can provide:
 
 ```text
-POST /api/v1/runs/{run_id}/feedback/parse
-POST /api/v1/runs/{run_id}/reprocess
-GET  /api/v1/runs/{run_id}/directives
+feedback text
+expected region type
+reprocess action
 ```
 
-The parse endpoint returns proposed directives before starting a run when confirmation is required.
+Button:
+
+```text
+Reprocess Region
+```
+
+Do not build authentication for MVP.
 
 ---
 
-## 15. UI pages
+# 27. API Requirements
 
-### 15.1 Shared application shell
-
-Left navigation:
-
-- Home
-- My Workbooks
-- Run History
-
-Bottom utility links:
-
-- Feedback
-- Settings
-
-Header:
-
-- Workbook Agent logo/name
-- Help icon
-- User avatar or initials
-
-Do not add a large global header or complex mega-navigation.
-
-### 15.2 Home
-
-Match `01-home.png`.
-
-Main content:
-
-- Title: `Process your Excel workbook`
-- Short explanation
-- Large drag-and-drop upload area
-- Supported-format text
-- Browse Files button
-- Purpose dropdown
-- Optional description
-- Analyze Workbook button
-- Recent Workbooks table
-- Small four-step “How it works” strip
-
-Upload interaction:
-
-1. Drop or browse a file.
-2. Display file name, size, and remove action.
-3. Purpose defaults to `Knowledge extraction / Entity & relationship`.
-4. User clicks Analyze Workbook.
-5. Create workbook and initial run.
-6. Navigate to run detail/processing state.
-
-### 15.3 My Workbooks
-
-Match `02-my-workbooks.png`.
-
-Purpose: permanent workbook library.
-
-Show:
-
-- Search
-- Filters: All, Completed, Needs Review, Processing, Failed
-- Upload Workbook button
-- Minimal summary cards only if present in the screenshot
-- Workbook table
-
-Columns:
-
-- Workbook
-- Purpose
-- Last Run
-- Status
-- Confidence
-- Actions
-
-Each workbook appears once. Clicking a row opens the workbook detail.
-
-Actions menu:
-
-- Open
-- Reprocess
-- Download latest package
-- View runs
-- Archive
-
-### 15.4 Run History
-
-Match `03-run-history.png`.
-
-Purpose: audit trail of processing attempts.
-
-Show:
-
-- Search
-- Status filters
-- Sort dropdown
-- Minimal run summary
-- Recent Runs table
-- Selected-run side panel on desktop
-
-Columns:
-
-- Run ID
-- Workbook
-- Started
-- Duration
-- Status
-- Output
-- Actions
-
-Selected-run panel:
-
-- Run ID
-- Workbook
-- Purpose
-- Trigger
-- Status
-- Confidence
-- Output count
-- Feedback summary when applicable
-- View Output button
-- Re-run button
-
-### 15.5 Workbook detail
-
-Keep this screen simpler than the earlier heavy dashboard concept.
-
-Header:
-
-- Workbook name
-- Latest status
-- Confidence
-- Last processed time
-- Download Package
-- Reprocess
-
-Tabs:
-
-- Overview
-- Output Assets
-- Review
-- Runs
-
-#### Overview
-
-Show only:
-
-- Plain-language workbook understanding
-- Workbook type and purpose
-- Key structural facts
-- Simple inferred flow such as `Source Data → Assumptions → Forecast → Dashboard`
-- Current run status
-- Primary unresolved issues
-
-Do not use more than four small metric cards.
-
-#### Output Assets
-
-Use grouped, collapsible sections:
-
-- Normalized datasets
-- Semantic and embedding units
-- Entities and relationships
-- Formula and lineage assets
-- Visual assets
-- Quality report
-
-Each item has Preview and Download actions.
-
-#### Review
-
-List open review items as simple cards with evidence and actions.
-
-#### Runs
-
-List all runs for this workbook and support comparison.
-
-### 15.6 Processing state
-
-Show a clean vertical stage list, not an architecture diagram.
-
-Example:
+Implement FastAPI endpoints approximately like:
 
 ```text
-✓ Workbook inspected
-✓ Sheets and regions identified
-● Analyzing formulas and relationships
-○ Processing images and charts
-○ Creating normalized knowledge assets
-○ Validating outputs
+POST /workbooks/upload
+POST /workbooks/{workbook_id}/process
+
+GET /runs/{run_id}
+GET /runs/{run_id}/status
+
+GET /workbooks/{workbook_id}
+GET /workbooks/{workbook_id}/sheets
+
+GET /workbooks/{workbook_id}/tables
+GET /workbooks/{workbook_id}/formulas
+GET /workbooks/{workbook_id}/graph
+
+GET /regions/{region_id}
+
+POST /regions/{region_id}/feedback
+POST /regions/{region_id}/reprocess
+
+GET /health
 ```
 
-Show current stage, short activity text, progress bar, cancel action, and optional technical log drawer.
+Long processing may initially run synchronously or with a simple local task mechanism.
 
-### 15.7 Reprocess drawer
-
-Fields:
-
-- Feedback textarea
-- Apply feedback to
-- Sheet or asset selector
-- Preserve confirmed mappings
-- Preserve approved structures
-- Reprocess only impacted assets
-- Start Reprocessing
-
-After parsing feedback, show the interpreted directives in plain language when confirmation is required.
+Do not add Kafka, Celery, Redis or distributed orchestration in MVP.
 
 ---
 
-## 16. State and interaction rules
+# 28. Processing Stages
 
-- Every async action must show loading, success, and error states.
-- Tables must support empty states.
-- Upload must display validation errors clearly.
-- Processing progress must recover after page refresh by reconnecting to SSE and fetching run state.
-- No optimistic success for processing or review actions.
-- Review actions should invalidate relevant TanStack Query caches.
-- Use accessible labels and keyboard focus states.
-- Use status pill colors consistently:
-  - completed: green
-  - needs review: amber
-  - processing: blue or neutral active
-  - failed: red
-  - queued: gray
-- Avoid modals for long feedback forms; use a side drawer.
+Implement explicit stages:
+
+```text
+UPLOADED
+INSPECTING
+DETECTING_REGIONS
+EXTRACTING_TABLES
+EXTRACTING_TEXT
+EXTRACTING_VISUALS
+PARSING_FORMULAS
+BUILDING_GRAPH
+AGENT_REVIEW
+NORMALIZING
+EMBEDDING
+QUALITY_CHECK
+COMPLETED
+COMPLETED_WITH_WARNINGS
+FAILED
+```
+
+Persist stage/status for observability.
 
 ---
 
-## 17. LM Studio integration
+# 29. Logging
 
-### 17.1 Environment variables
+Use structured Python logging.
 
-Create `.env.example`:
+Every log line should include where relevant:
 
-```bash
-APP_ENV=development
-API_HOST=0.0.0.0
-API_PORT=8000
-DATABASE_URL=sqlite:///./data/workbook_agent.db
-REDIS_URL=redis://localhost:6379/0
-STORAGE_ROOT=./data/storage
-MAX_UPLOAD_MB=200
+```text
+run_id
+workbook_id
+sheet_name
+region_id
+stage
+```
 
-AGENT_FRAMEWORK=deepagents
+Do not log entire workbook contents or huge cell dumps.
+
+---
+
+# 30. Security / Safety
+
+Even though local:
+
+- never execute macros
+- never execute workbook-provided code
+- never follow external links automatically
+- never overwrite source workbook
+- sanitize filenames
+- validate uploaded file extension
+- enforce configurable upload size limit
+- treat workbook cell text as untrusted data
+- prevent arbitrary paths in API arguments
+- keep LM tool calls limited to predefined safe functions
+
+---
+
+# 31. Configuration
+
+Create `.env.example`.
+
+Suggested settings:
+
+```env
+APP_ENV=local
+
+DATA_DIR=./data
+UPLOAD_DIR=./data/uploads
+OUTPUT_DIR=./data/outputs
+
+MAX_UPLOAD_MB=100
+REGION_AGENT_THRESHOLD=0.70
+MAX_AGENT_STEPS=8
+
 LM_STUDIO_BASE_URL=http://localhost:1234/v1
 LM_STUDIO_API_KEY=lm-studio
-LLM_REASONING_MODEL=
-LLM_VISION_MODEL=
+LLM_MODEL=
+VLM_MODEL=
 EMBEDDING_MODEL=
-LLM_TEMPERATURE=0.1
-LLM_REQUEST_TIMEOUT_SECONDS=120
-LLM_MAX_RETRIES=2
-AGENT_MAX_STEPS=20
 
-ENABLE_OCR=true
-OCR_PROVIDER=paddleocr
-ENABLE_VISION=true
+ENABLE_AGENT=true
+ENABLE_VLM=true
 ENABLE_EMBEDDINGS=true
-ENABLE_ENTITY_EXTRACTION=true
-ENABLE_GRAPH_ASSETS=true
+ENABLE_LIBREOFFICE_RENDER=true
+
+DUCKDB_PATH=./data/excel_intelligence.duckdb
+SQLITE_PATH=./data/runs.sqlite
+LANCEDB_PATH=./data/lancedb
 ```
 
-When running the backend inside Docker on macOS or Windows, document the use of:
+---
 
-```text
-http://host.docker.internal:1234/v1
-```
+# 32. MVP Unsupported / Limited Features
 
-### 17.2 Model registry
+Detect and report, but do not fully support:
 
-At startup:
+- VBA execution
+- macros
+- Power Query execution
+- Power Pivot / DAX model execution
+- Excel add-ins
+- arbitrary external data source refresh
+- external workbook auto-fetch
+- password-protected files
+- full Excel formula engine compatibility
+- perfect visual parity with Microsoft Excel
 
-1. Call the model-list endpoint.
-2. Validate configured model names.
-3. Store a capability snapshot.
-4. Expose status through the API.
-5. Do not fail the entire backend if LM Studio is offline.
-
-### 17.3 Structured output
-
-All LLM responses used by the pipeline must be parsed into Pydantic models.
-
-Implement:
-
-- schema-first prompts
-- strict JSON extraction
-- one repair attempt
-- fallback error object
-- raw-response storage for debugging, with workbook-sensitive logs disabled by default
-
-### 17.4 Vision prompts
-
-Send:
-
-- cropped image or embedded image
-- sheet name
-- anchor range
-- nearest headers and row context
-- requested classification schema
-
-Do not send the entire workbook context with every image.
-
-### 17.5 Embedding abstraction
-
-Create an `EmbeddingProvider` protocol.
-
-Implement:
-
-- `LMStudioEmbeddingProvider`
-- optional `SentenceTransformersEmbeddingProvider`
-- `NoOpEmbeddingProvider` for tests
-
-Store embeddings outside the main relational database. For MVP, write vectors to a local file or a small local vector store only after canonical chunks are created. The package must remain usable without a vector database.
+The system should not fail the entire workbook merely because one unsupported feature exists.
 
 ---
 
-## 18. Storage and privacy
+# 33. Sample Workbooks
 
-### 18.1 Local object storage
+Create test fixtures programmatically.
 
-Use a filesystem implementation with an interface compatible with later S3 storage.
+At minimum generate:
 
-Paths:
+## fixture_simple.xlsx
 
-```text
-data/storage/workbooks/{workbook_id}/original/{filename}
-data/storage/workbooks/{workbook_id}/runs/{run_id}/intermediate/
-data/storage/workbooks/{workbook_id}/runs/{run_id}/package/
-data/storage/workbooks/{workbook_id}/runs/{run_id}/logs/
-```
+- 2 sheets
+- 1 native table
+- basic formulas
 
-### 18.2 Privacy
+## fixture_multi_region.xlsx
 
-- Do not log cell values or image text by default.
-- Log asset IDs, counts, ranges, stage names, durations, and errors.
-- Provide a development-only flag for detailed diagnostic logs.
-- Never send data outside LM Studio/local services unless a future connector is explicitly configured.
+- title
+- table
+- narrative block
+- second table
+- merged cells
 
-### 18.3 Safety
+## fixture_cross_sheet.xlsx
 
-- Static-inspect macros; never execute them.
-- Sanitize filenames.
-- Prevent path traversal.
-- Enforce file-size limits.
-- Store uploads outside the web root.
-- Validate archive expansion limits to mitigate zip bombs.
-- Do not render untrusted HTML from workbook cells.
-- Escape formula-like values when exporting CSV previews.
+- source sheet
+- lookup sheet
+- summary sheet
+- cross-sheet formulas
 
----
+## fixture_complex.xlsx
 
-## 19. Observability
+- 5+ sheets
+- hidden lookup sheet
+- formulas
+- named ranges
+- comments
+- merged cells
+- image if practical
+- chart
+- multiple logical regions
 
-Every run must record:
-
-- stage start/end
-- tool invocation
-- duration
-- input/output asset references
-- deterministic or model-based method
-- model ID
-- token/latency metrics when available
-- warning/error
-- retry count
-- confidence contribution
-
-Create a technical-log endpoint but keep it hidden behind `View Technical Log` in the UI.
-
-Use correlation IDs:
-
-- `request_id`
-- `workbook_id`
-- `run_id`
-- `stage_id`
-- `tool_call_id`
+Do not rely exclusively on manually created fixtures.
 
 ---
 
-## 20. Error handling
+# 34. Testing Requirements
 
-Use typed error codes:
+Use `pytest`.
 
-- `UNSUPPORTED_FILE_TYPE`
-- `FILE_TOO_LARGE`
-- `ENCRYPTED_WORKBOOK`
-- `CORRUPT_WORKBOOK`
-- `UNSAFE_ARCHIVE`
-- `PARSER_FAILURE`
-- `UNSUPPORTED_WORKBOOK_FEATURE`
-- `LM_STUDIO_UNAVAILABLE`
-- `MODEL_NOT_CONFIGURED`
-- `MODEL_STRUCTURED_OUTPUT_FAILURE`
-- `VISION_PROCESSING_FAILURE`
-- `JOB_QUEUE_UNAVAILABLE`
-- `PROCESSING_CANCELLED`
-- `PACKAGE_WRITE_FAILURE`
-
-Show business-friendly messages and preserve technical details for logs.
-
-The pipeline should support partial completion. For example, deterministic extraction can complete even if semantic interpretation fails.
-
----
-
-## 21. Testing strategy
-
-### 21.1 Test workbook fixtures
-
-Create synthetic workbooks under `backend/tests/fixtures/workbooks/`:
-
-1. `01_clean_table.xlsx`
-   - one clean table
-
-2. `02_multiple_sheets.xlsx`
-   - customer, orders, and reference sheets
-   - cross-sheet lookup
-
-3. `03_multiple_tables_one_sheet.xlsx`
-   - unrelated tables and notes
-
-4. `04_multirow_headers.xlsx`
-   - merged and hierarchical headers
-
-5. `05_repeated_blocks.xlsx`
-   - one block per region
-
-6. `06_form_layout.xlsx`
-   - label-value fields
-
-7. `07_formula_model.xlsx`
-   - inputs, calculations, outputs
-   - cross-sheet formulas
-
-8. `08_hidden_sheets.xlsx`
-   - hidden reference and calculation sheets
-
-9. `09_images.xlsx`
-   - logo, screenshot, scanned table, and record-linked photograph
-
-10. `10_charts.xlsx`
-    - charts with source ranges
-
-11. `11_external_links.xlsx`
-    - inaccessible external workbook reference
-
-12. `12_macro_enabled.xlsm`
-    - macro present but never executed
-
-13. `13_formula_errors.xlsx`
-    - `#REF!`, inconsistent formulas, hard-coded override
-
-14. `14_complex_combined.xlsx`
-    - multi-sheet, formulas, images, charts, notes, and repeated blocks
-
-### 21.2 Golden outputs
-
-For important fixtures, store expected:
-
-- workbook manifest
-- sheet/region structure
-- normalized table schema
-- formula edges
-- image locations
-- review issues
-- package manifest
-
-Golden tests must ignore non-deterministic IDs and timestamps.
-
-### 21.3 Unit tests
+## Unit tests
 
 Cover:
 
-- file validation
-- hashing
-- workbook manifest creation
-- sheet visibility
-- merged-header normalization
-- region detection rules
-- formula tokenization
-- cross-sheet reference extraction
-- visual-anchor extraction
-- content-unit generation
-- provenance generation
-- directive parsing validation
-- impact analysis
-- confidence aggregation
+- workbook inspection
+- sheet inventory
+- table detection
+- native table extraction
+- inferred table extraction
+- formula extraction
+- cross-sheet references
+- dependency graph creation
+- hidden sheets
+- merged cells
+- comments
+- region confidence
+- output manifests
 
-### 21.4 Integration tests
-
-Cover:
-
-- upload to completed deterministic package
-- queued run lifecycle
-- SSE progress
-- model unavailable fallback
-- feedback to child run
-- asset reuse during incremental reprocessing
-- package download
-- run comparison
-
-### 21.5 Frontend tests
+## Integration tests
 
 Cover:
 
-- upload validation
-- file drop
-- workbook filters
-- run filters
-- progress reconnection
-- review action flow
-- reprocess drawer
-- run comparison
-- empty and error states
-
-### 21.6 End-to-end acceptance flow
-
-1. Upload `14_complex_combined.xlsx`.
-2. Select knowledge extraction.
-3. Start analysis.
-4. Observe stage progress.
-5. Open output.
-6. Preview a normalized table.
-7. Preview a visual asset.
-8. Resolve one review item.
-9. Enter feedback changing a header row and field mapping.
-10. Start impacted-assets reprocessing.
-11. Compare runs.
-12. Accept the latest run.
-13. Download the package.
-
----
-
-## 22. Acceptance criteria
-
-The MVP is complete when:
-
-1. The three main screens visually match the supplied screenshots closely.
-2. A user can upload a supported workbook from Home.
-3. The workbook appears once in My Workbooks.
-4. Every processing attempt appears in Run History.
-5. Processing runs asynchronously and exposes recoverable progress.
-6. The system generates a manifest, normalized tables, semantic units, embedding chunks, graph nodes/edges, media assets, and a quality report.
-7. Images are extracted, located, classified, and linked to nearby workbook context.
-8. Formulas generate dependency edges and human-readable business-rule candidates.
-9. Every generated asset has provenance.
-10. Low-confidence findings create review items.
-11. Natural-language feedback is converted into structured directives.
-12. A feedback rerun creates a child run and reuses unaffected approved assets.
-13. The user can compare runs and accept the preferred version.
-14. The complete package can be downloaded as a ZIP.
-15. The application works when LM Studio is online.
-16. Deterministic extraction still works with a clear degraded status when LM Studio is offline.
-17. Macros are never executed.
-18. Automated tests cover the core flow.
-
----
-
-## 23. Implementation sequence for Codex
-
-Implement in this order. Do not jump directly into agent prompts before the domain model and deterministic processing are stable.
-
-### Phase 1: Scaffold
-
-- Create monorepo.
-- Configure frontend, backend, database, Redis, linting, formatting, tests, and Docker Compose.
-- Add `.env.example`.
-- Add health endpoints.
-
-### Phase 2: UI shell and screenshot-faithful screens
-
-- Build shared shell.
-- Build Home.
-- Build My Workbooks.
-- Build Run History.
-- Use mocked typed API data temporarily.
-- Add responsive behavior.
-
-### Phase 3: Persistence and upload flow
-
-- Implement database models and migrations.
-- Implement local object storage.
-- Implement workbook upload.
-- Implement workbook list and run list.
-- Connect UI to real APIs.
-
-### Phase 4: Job queue and run lifecycle
-
-- Implement RQ worker.
-- Implement stage state machine.
-- Implement SSE events.
-- Build processing screen.
-
-### Phase 5: Deterministic workbook processing
-
-- File safety and manifest.
-- Sheets, tables, formulas, named ranges, images, charts, comments, and links.
-- Region and table normalization.
-- Canonical package writer.
-- Golden tests.
-
-### Phase 6: LM Studio and agent runtime
-
-- Model registry.
-- Reasoning, vision, and embedding adapters.
-- Deep Agents runtime adapter.
-- Supervisor and typed tools.
-- Structured semantic outputs.
-- Degraded-mode behavior.
-
-### Phase 7: Review and feedback
-
-- Review item APIs and UI.
-- Feedback drawer.
-- Feedback interpreter.
-- Processing directives.
-- Impact analysis.
-- Incremental child runs.
-
-### Phase 8: Outputs and comparison
-
-- Workbook detail.
-- Asset previews.
-- Package download.
-- Run comparison.
-- Accept current version.
-
-### Phase 9: Hardening
-
-- Security checks.
-- Error states.
-- Performance profiling.
-- E2E tests.
-- Documentation.
-
----
-
-## 24. Codex working rules
-
-1. Read this file and all screenshots before coding.
-2. Create a short implementation checklist in the repository and update it as work progresses.
-3. Prefer small, testable modules.
-4. Keep UI components under roughly 250 lines when practical.
-5. Keep API route handlers thin.
-6. Put business logic in services and processing modules.
-7. Use typed schemas end to end.
-8. Never store large workbook content directly in relational database columns.
-9. Never execute workbook macros.
-10. Never rely on the LLM for facts a deterministic parser can provide.
-11. Validate every model output.
-12. Preserve provenance throughout transformations.
-13. Do not add features outside this specification until the core flow is complete.
-14. Do not over-design the UI.
-15. Run formatting, linting, unit tests, integration tests, and frontend tests before marking a phase complete.
-16. When a library cannot expose a workbook feature, document the limitation and emit a review/quality item instead of silently dropping it.
-17. Keep the application usable without cloud accounts.
-18. Create clear README instructions for starting LM Studio, Redis, backend, worker, and frontend.
-
----
-
-## 25. Developer commands
-
-Provide a `Makefile` with at least:
-
 ```text
-make install
-make dev
-make backend
-make worker
-make frontend
-make redis
-make test
-make test-backend
-make test-frontend
-make lint
-make format
-make create-fixtures
-make seed-demo
-make verify-lmstudio
+upload -> process -> normalized outputs
 ```
 
-Recommended local startup:
+and:
 
 ```text
-Terminal 1: LM Studio local server
-Terminal 2: make redis
-Terminal 3: make backend
-Terminal 4: make worker
-Terminal 5: make frontend
+low-confidence region -> agent call -> normalized result
 ```
 
-Docker Compose may run the database, Redis, backend, worker, and frontend, but LM Studio is expected to run on the host machine.
+Mock LM Studio for CI tests.
+
+Agent tests must not require a live model.
 
 ---
 
-## 26. README requirements
+# 35. Acceptance Criteria
 
-The generated repository README must include:
+MVP is complete when all of the following work locally:
 
-- Product overview
-- Architecture diagram
-- Prerequisites
-- LM Studio setup
-- Model role configuration
-- Local startup
-- Docker startup
-- How to upload a workbook
-- Output package explanation
-- How feedback and reprocessing work
-- Test commands
-- Known limitations
-- Security note about macros
+1. User can upload an `.xlsx` file in Streamlit.
+2. Workbook run is registered.
+3. All sheets are discovered.
+4. Hidden sheets are identified.
+5. Native Excel tables are extracted to Parquet.
+6. Reasonable inferred table regions can be detected.
+7. Narrative/text regions are captured.
+8. Formula expressions are preserved.
+9. Cross-sheet formula references are extracted.
+10. Dependency graph is generated.
+11. Embedded images are extracted where supported.
+12. Charts are at least inventoried.
+13. Low-confidence regions can be identified.
+14. A low-confidence region can be sent to the LM Studio-backed agent.
+15. Agent uses workbook tools rather than receiving the entire workbook.
+16. User can submit feedback and reprocess one region.
+17. Workbook outputs are stored under a run-specific output directory.
+18. DuckDB contains normalized metadata.
+19. Application still processes deterministically if LM Studio is offline.
+20. Unit/integration tests pass.
 
 ---
 
-## 27. Final product behavior summary
+# 36. Implementation Priority
 
-The completed application should feel like this:
+Implement in this order.
+
+## Phase 1 — Deterministic core
+
+1. project scaffolding
+2. settings
+3. upload
+4. run metadata
+5. workbook inspection
+6. sheet inventory
+7. native table extraction
+8. formula extraction
+9. dependency graph
+10. output manifest
+
+Do not start agent work before these are stable.
+
+## Phase 2 — Workbook structure
+
+11. logical region detector
+12. inferred table extraction
+13. text extraction
+14. comments
+15. images/charts inventory
+16. quality scoring
+
+## Phase 3 — Local UI
+
+17. Streamlit upload page
+18. results page
+19. review page
+
+## Phase 4 — Agentic exceptions
+
+20. LM Studio client
+21. LangGraph agent
+22. workbook tools
+23. low-confidence escalation
+24. optional VLM rendering
+25. region remediation
+
+## Phase 5 — Retrieval assets
+
+26. summaries
+27. embeddings
+28. LanceDB
+
+---
+
+# 37. Engineering Principles
+
+Follow these rules throughout implementation.
+
+### Deterministic before probabilistic
+
+If information is available directly from OOXML/openpyxl, do not ask the LLM for it.
+
+### Region-level AI
+
+Never send the full workbook to the LLM by default.
+
+### Preserve provenance
+
+Every extracted asset must retain workbook/sheet/range lineage.
+
+### Fail partially
+
+A failed chart or agent call must not discard successfully extracted tables/formulas.
+
+### Local-first
+
+The complete MVP must work without cloud infrastructure.
+
+### Replaceable components
+
+Keep interfaces around:
 
 ```text
-Upload workbook
-    ↓
-System profiles workbook and selects a processing path
-    ↓
-Deterministic tools extract structure, data, formulas, visuals, and lineage
-    ↓
-Local agents interpret semantics and ambiguity
-    ↓
-System validates and creates a normalized Workbook Knowledge Package
-    ↓
-User reviews only uncertain items
-    ↓
-User gives feedback
-    ↓
-Feedback becomes processing directives
-    ↓
-Only impacted assets are reprocessed
-    ↓
-User compares and accepts the improved run
+LLM
+vector store
+structured store
+graph store
+rendering engine
 ```
 
-The user should experience a simple workbook-processing product. The implementation should provide a rigorous, traceable, multimodal knowledge-extraction platform underneath it.
+so they can later map to Databricks/Azure.
+
+### No premature distributed architecture
+
+Do not add message queues, Kubernetes, Spark, Databricks or cloud services to the local MVP.
+
+---
+
+# 38. Future Enterprise Mapping
+
+Design interfaces so the following migration remains straightforward:
+
+```text
+Local Prototype              Enterprise Target
+
+Filesystem              ->   ADLS / Unity Catalog Volume
+Python orchestrator      ->   Databricks Workflows / Lakeflow
+DuckDB + Parquet         ->   Delta Lake
+LanceDB                  ->   Mosaic AI Vector Search
+NetworkX                 ->   Delta graph assets / graph store
+LM Studio                ->   Databricks Model Serving / enterprise LLM
+LangGraph                ->   enterprise agent runtime
+Streamlit                ->   enterprise React/API UI if required
+SQLite                   ->   Delta control tables
+```
+
+The following code should be reusable with minimal changes:
+
+- workbook inspection
+- region detection
+- table extraction
+- formula parser
+- dependency graph logic
+- normalized schemas
+- agent tools
+- quality checks
+- tests
+
+---
+
+# 39. Definition of Done for Each Feature
+
+A feature is not complete unless it has:
+
+1. implementation
+2. typed interfaces
+3. error handling
+4. structured logging
+5. unit tests
+6. integration into pipeline
+7. output persisted
+8. README usage notes where necessary
+
+---
+
+# 40. First Codex Task
+
+Start by implementing only **Phase 1 — Deterministic Core**.
+
+Deliver:
+
+- repository scaffolding
+- `pyproject.toml`
+- `.env.example`
+- settings
+- Pydantic models
+- workbook upload/storage
+- run registry
+- workbook inspector
+- sheet inventory
+- native Excel table extractor
+- formula extractor
+- initial cross-sheet dependency parser
+- NetworkX graph builder
+- JSON/Parquet/DuckDB outputs
+- sample workbook generator
+- pytest tests
+- basic FastAPI health/run endpoints
+
+After Phase 1 passes tests, proceed to later phases.
+
+Do not implement the LangGraph agent in the first coding pass.
