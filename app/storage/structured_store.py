@@ -52,6 +52,8 @@ COLUMNS = {
         "cell": "VARCHAR",
     },
     "text_assets": {"text_asset_id": "VARCHAR", "sheet_id": "VARCHAR", "content": "VARCHAR"},
+    "image_assets": {"image_id": "VARCHAR", "sheet_id": "VARCHAR", "filename": "VARCHAR"},
+    "chart_assets": {"chart_id": "VARCHAR", "sheet_id": "VARCHAR", "chart_type": "VARCHAR"},
     "feedback": {"region_id": "VARCHAR", "content": "VARCHAR"},
 }
 
@@ -74,11 +76,20 @@ class StructuredStore:
                         f'CREATE TABLE IF NOT EXISTS "{name}" '
                         f"(run_id VARCHAR, ordinal INTEGER, {ddl}, payload JSON)"
                     )
+                    existing = {
+                        row[1]
+                        for row in db.execute(f"PRAGMA table_info('{name}')").fetchall()
+                    }
+                    for field, dtype in fields.items():
+                        if field not in existing:
+                            db.execute(f'ALTER TABLE "{name}" ADD COLUMN "{field}" {dtype}')
                     db.execute(f'DELETE FROM "{name}" WHERE run_id = ?', [run_id])
                     if rows:
+                        columns = ["run_id", "ordinal", *fields, "payload"]
+                        column_sql = ", ".join(f'"{column}"' for column in columns)
                         placeholders = ", ".join("?" for _ in range(len(fields) + 3))
                         db.executemany(
-                            f'INSERT INTO "{name}" VALUES ({placeholders})',
+                            f'INSERT INTO "{name}" ({column_sql}) VALUES ({placeholders})',
                             [
                                 (run_id, i, *[row.get(field) for field in fields], json.dumps(row))
                                 for i, row in enumerate(rows)

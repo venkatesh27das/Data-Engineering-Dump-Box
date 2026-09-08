@@ -11,6 +11,12 @@ def now() -> datetime:
 class Stage(StrEnum):
     UPLOADED = "UPLOADED"
     INSPECTING = "INSPECTING"
+    DETECTING_REGIONS = "DETECTING_REGIONS"
+    EXTRACTING_TEXT = "EXTRACTING_TEXT"
+    EXTRACTING_VISUALS = "EXTRACTING_VISUALS"
+    AGENT_REVIEW = "AGENT_REVIEW"
+    EMBEDDING = "EMBEDDING"
+    QUALITY_CHECK = "QUALITY_CHECK"
     EXTRACTING_TABLES = "EXTRACTING_TABLES"
     PARSING_FORMULAS = "PARSING_FORMULAS"
     BUILDING_GRAPH = "BUILDING_GRAPH"
@@ -28,6 +34,8 @@ class Run(BaseModel):
     updated_at: datetime = Field(default_factory=now)
     error: str | None = None
     output_path: str | None = None
+    parent_run_id: str | None = None
+    reprocessed_region_id: str | None = None
 
 
 class WarningRecord(BaseModel):

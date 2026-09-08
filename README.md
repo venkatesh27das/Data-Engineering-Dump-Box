@@ -1,14 +1,39 @@
-# Excel Intelligence — Phase 1
+# Excel Intelligence
 
-A local Python application that turns `.xlsx` workbooks into sheet inventories,
-native table Parquet files, preserved formulas, dependency graphs, and queryable
-DuckDB metadata. `CODEX.md` is the project specification. This implementation
-stops at **Phase 1 — Deterministic Core**.
+A local-first macOS application for inspecting `.xlsx` workbooks and producing
+structured, traceable assets. The pipeline follows `CODEX.md`: deterministic
+inspection comes first, and the local Workbook Intelligence Agent is used only
+for ambiguous regions or an explicit review request.
 
-## Run on macOS
+The implemented MVP covers all five planned phases:
 
-Install Python 3.11 or newer (the macOS system Python may be older), then run
-from this repository root:
+- deterministic upload, inspection, formulas, dependencies, Parquet, DuckDB,
+  JSON, GraphML, and run metadata
+- logical regions, inferred tables, narrative/comments, embedded images, chart
+  inventory, and explainable quality scores
+- Streamlit upload, results, and review/reprocess views
+- optional LM Studio agent and VLM enrichment with bounded read-only tools, plus
+  optional LibreOffice rendering
+- workbook/sheet/table summaries and optional LanceDB semantic search
+
+All deterministic processing works when LM Studio and LibreOffice are offline.
+No macro, workbook code, external link, or data refresh is executed.
+
+## Run locally on macOS
+
+Python 3.11 or newer is required. From the repository root:
+
+```bash
+uv sync --extra dev
+cp .env.example .env
+uv run python scripts/create_sample_workbooks.py
+uv run streamlit run app/ui/streamlit_app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+Open [http://localhost:8501](http://localhost:8501). Upload an `.xlsx` file or
+choose **Try a sample**, then click **Process workbook**.
+
+Without `uv`:
 
 ```bash
 python3.12 -m venv .venv
@@ -16,169 +41,195 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 cp .env.example .env
 python scripts/create_sample_workbooks.py
-python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+python -m streamlit run app/ui/streamlit_app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
-Alternatively, with `uv` installed: `uv sync --extra dev`, followed by
-`uv run uvicorn app.api.main:app --host 127.0.0.1 --port 8000`.
-Use **one Uvicorn worker** and one application instance per data directory;
-DuckDB writes are serialized within that process. No Excel, LibreOffice,
-LM Studio, cloud service, or network connection is needed at runtime.
+The Streamlit application calls the pipeline directly, so FastAPI does not need
+to run at the same time.
 
-Open [API documentation](http://127.0.0.1:8000/docs) for upload and processing.
-This phase has no Streamlit interface.
+## Optional local services
+
+LM Studio uses its OpenAI-compatible loopback endpoint. Put model identifiers in
+`.env`; no model name is hard-coded:
+
+```env
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+LLM_MODEL=your-local-instruct-model
+VLM_MODEL=your-local-vision-model
+EMBEDDING_MODEL=your-local-embedding-model
+```
+
+Start LM Studio's local server before processing. With no configured model, the
+application keeps ambiguous regions available for manual review, uses
+deterministic summaries, and skips embeddings and visual descriptions.
+
+LibreOffice rendering is off by default. Install LibreOffice and set
+`ENABLE_LIBREOFFICE_RENDER=true` to render selected regions. Rendering always
+uses a temporary workbook copy and private profile. Workbooks with detectable
+macros, external links/connections, query tables, embedded packages, or
+potentially external formulas are not rendered. The upload is never overwritten.
+
+## User flow
+
+The Streamlit results page shows workbook metrics, quality, sheets, extracted
+tables, formulas, dependencies, warnings, regions, narrative assets, images, and
+charts. Native and inferred table assets can be downloaded as Parquet.
+
+Low-confidence regions appear under **Review & reprocess**. A user can inspect a
+bounded sample, save feedback, assign an expected type, or ask the local agent to
+review it. Reprocessing creates a child run and preserves the parent files. If
+embeddings are configured, semantic search is scoped to the selected run.
+
+Formula cached values are preserved when present. This application does not
+claim to calculate formulas; a missing cache produces a warning while the
+expression and dependencies remain available.
+
+## FastAPI
+
+Run the API separately when programmatic access is needed:
+
+```bash
+uv run uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+```
+
+Open [http://localhost:8000/docs](http://localhost:8000/docs).
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Application health and implemented phase |
+| GET | `/system/status` | Local model, enrichment, and LibreOffice status |
+| POST | `/workbooks/upload` | Store a validated `.xlsx` upload |
+| POST | `/workbooks/{workbook_id}/process` | Run the complete pipeline synchronously |
+| GET | `/runs/{run_id}` | Read persisted run metadata |
+| GET | `/runs/{run_id}/status` | Read the current processing stage |
+| GET | `/workbooks/{workbook_id}` | Workbook metadata and latest run |
+| GET | `/workbooks/{workbook_id}/sheets` | Sheet inventory |
+| GET | `/workbooks/{workbook_id}/regions` | Regions and confidence |
+| GET | `/workbooks/{workbook_id}/tables` | Native and inferred tables |
+| GET | `/workbooks/{workbook_id}/text` | Text, descriptions, and summaries |
+| GET | `/workbooks/{workbook_id}/formulas` | Paginated formula assets |
+| GET | `/workbooks/{workbook_id}/graph` | Dependency graph JSON |
+| GET | `/workbooks/{workbook_id}/images` | Extracted image metadata |
+| GET | `/workbooks/{workbook_id}/charts` | Chart inventory and ranges |
+| GET | `/workbooks/{workbook_id}/summaries` | Compact summaries |
+| GET | `/regions/{region_id}` | Region and saved feedback |
+| POST | `/regions/{region_id}/feedback` | Save review feedback |
+| POST | `/regions/{region_id}/reprocess` | Create a child run for one region |
+| POST | `/regions/{region_id}/render` | Optionally render one region |
+| POST | `/search` | Search configured LanceDB embeddings |
+
+Upload and process:
 
 ```bash
 curl -F 'file=@tests/fixtures/fixture_cross_sheet.xlsx' \
   http://127.0.0.1:8000/workbooks/upload
-# Copy workbook_id from the response:
 curl -X POST http://127.0.0.1:8000/workbooks/WORKBOOK_ID/process
-curl http://127.0.0.1:8000/workbooks/WORKBOOK_ID/sheets
-curl http://127.0.0.1:8000/workbooks/WORKBOOK_ID/formulas
+curl http://127.0.0.1:8000/workbooks/WORKBOOK_ID/regions
 ```
 
-Processing is synchronous. The response includes `run_id`, `stage`, `error`,
-and `output_path`. A pipeline failure returns a persisted `FAILED` run so the
-caller can inspect the cause; HTTP errors cover invalid uploads (422), missing
-identifiers (404), and concurrent processing or unavailable results (409).
-Check the returned stage even when HTTP status is 200.
+Processing is synchronous. A successful HTTP processing response can contain a
+`FAILED` stage; inspect `stage` and `error`. Invalid uploads/values return 422,
+unknown IDs return 404, unavailable optional services return 503, and concurrent
+processing returns 409.
 
-## API
+## Output and storage
 
-| Method | Path | Result |
-| --- | --- | --- |
-| GET | `/health` | Local application health and phase |
-| POST | `/workbooks/upload` | Multipart `file`; immutable upload and initial run |
-| POST | `/workbooks/{workbook_id}/process` | Process upload; repeated calls create a new run |
-| GET | `/runs/{run_id}` | Persistent run metadata |
-| GET | `/runs/{run_id}/status` | Current persisted stage |
-| GET | `/workbooks/{workbook_id}` | Workbook metadata and latest run |
-| GET | `/workbooks/{workbook_id}/sheets` | Sheet inventory for latest completed run |
-| GET | `/workbooks/{workbook_id}/tables` | Native table assets and provenance |
-| GET | `/workbooks/{workbook_id}/formulas?offset=0&limit=100` | Formula assets; limit 1–1000 |
-| GET | `/workbooks/{workbook_id}/graph` | NetworkX graph serialized as nodes and edges |
-
-Run-specific files remain accessible locally after reprocessing. Workbook asset
-endpoints refer to the latest run and return 409 until that run completes.
-Region feedback and remediation endpoints belong to later phases.
-
-## Storage and output contract
-
-Uploads are stored under `data/uploads/<workbook_id>/<sanitized_filename>` with
-SHA-256 and size metadata. Source files are never rewritten. SQLite stores runs,
-workbooks, and stage history in `run_events`, including failures. Each completed
-run produces:
+Uploads are immutable under
+`data/uploads/<workbook_id>/<sanitized_filename>`. Each run writes:
 
 ```text
 data/outputs/<run_id>/
-  manifest.json                      # schema version, counts, warnings, file hashes
+  manifest.json
   metadata/workbook.json
   metadata/sheets.json
-  metadata/regions.json              # explicit native table regions only
+  metadata/regions.json
   metadata/table_assets.json
+  metadata/images.json
+  metadata/charts.json
+  metadata/summaries.json
+  metadata/feedback.json
   tables/<table_id>.parquet
+  text/text_assets.jsonl
   formulas/formulas.jsonl
   graph/dependency_graph.json
   graph/dependency_graph.graphml
+  images/<image_id>.<extension>
+  renders/<region_id>/*              # when enabled and available
   quality/quality_report.json
-  text/text_assets.jsonl              # empty; deferred
-  images/                            # reserved; deferred
-  renders/                           # reserved; deferred
 ```
 
-Parquet paths in assets are relative to their run directory. Table assets retain
-original and normalized headers, sheet/region identity, source range, and source
-row numbers. Blank rows and totals rows within native table ranges are retained.
-Mixed-type columns fall back to strings with an explicit warning. Dates and
-homogeneous numeric columns retain their types. Formulas in tables use cached
-values, with nulls and warnings where caches are absent; formula expressions are
-always stored separately.
+The manifest contains schema/phase information, parent and reprocessed-region
+IDs, counts, warnings, and SHA-256 hashes. Tables retain workbook, sheet, region,
+range, original headers, normalized columns, and source-row provenance. Blank
+and totals rows inside explicit Excel table ranges are retained.
 
-`data/excel_intelligence.duckdb` contains `runs`, `workbooks`, `sheets`, `regions`,
-`table_assets`, `formula_assets`, `graph_edges`, `processing_warnings`, and empty
-`text_assets` / `feedback` tables. Each has `run_id`, `ordinal`, useful typed
-query columns, and a full JSON `payload` for nested metadata. `schema_version`
-starts at 1. Native table data is materialized under each asset's `duckdb_table`
-identifier, unique per run. A run's DuckDB writes are transactional.
+SQLite stores workbooks, runs, stages, region lookups, and feedback. DuckDB
+stores versioned records in `runs`, `workbooks`, `sheets`, `regions`,
+`table_assets`, `text_assets`, `formula_assets`, `image_assets`, `chart_assets`,
+`graph_edges`, `processing_warnings`, and `feedback`. Each keeps useful typed
+columns and its complete JSON payload. Phase 1 DuckDB tables are migrated in
+place. Extracted table data is materialized under a run-unique identifier.
 
-```python
-import duckdb
-with duckdb.connect('data/excel_intelligence.duckdb', read_only=True) as db:
-    print(db.sql('SELECT filename, sheet_count, formula_count FROM workbooks'))
-    print(db.sql('SELECT sheet_id, cell, formula, parse_status FROM formula_assets'))
-    print(db.sql('SELECT source, target FROM graph_edges WHERE relationship = \'DEPENDS_ON\''))
-```
+LanceDB tables are partitioned by embedding-model hash and vector dimension.
+Only region-aware text, comments, summaries, and table descriptions are chunked;
+individual cells are not automatically embedded. Vectors retain run, workbook,
+sheet, region, asset type, range, and table provenance.
 
-## Dependency semantics and limits
+## Detection, agent, graph, and quality
 
-The graph points **from a formula to its inputs** (`DEPENDS_ON`). Workbook,
-sheet, region, table, cell, and range nodes retain provenance through `CONTAINS`.
-Ranges are single nodes, including full-column/row references; they are never
-expanded into millions of cells. For a range dependency, inspect its address
-when determining whether a particular cell contributes to a formula. The graph
-does not automatically expand range membership into transitive cell edges.
+Region detection gives explicit Excel tables precedence, recognizes merged
+titles, and splits other occupied cells on wholly blank rows and columns. Density,
+header shape, formulas, fills, borders, bold text, number formats, and location
+produce an explainable type and confidence. Scores below
+`REGION_AGENT_THRESHOLD` require review.
 
-The conservative openpyxl-tokenizer parser supports A1 references, absolute and
-mixed addresses, quoted sheet names and escaped apostrophes, same/cross-sheet
-ranges, and case-insensitive workbook/sheet-scoped named ranges (including name
-aliases). External references are recorded and never fetched. Unsupported
-structured references, 3D references, dynamic `INDIRECT`/`OFFSET`, array/data-table
-constructs, broken references, and unresolved names are reported as partial
-parses. This is **reference extraction, not a formula calculation engine**.
-The `formulas` evaluation package is therefore not needed in Phase 1.
+The single LangGraph agent follows inspect → reason → bounded tool call →
+validate. It can read only the selected region through `inspect_range`,
+`get_values`, `get_formulas`, and `get_styles`. Results are capped by
+`MAX_TOOL_CELLS`, and the loop by `MAX_AGENT_STEPS`. Workbook text is untrusted.
+Invalid model output records a warning and preserves deterministic results.
 
-Cached values may be missing or stale; this application preserves them without
-claiming they were recalculated. Missing caches produce `COMPLETED_WITH_WARNINGS`.
-The generated formula fixtures intentionally have no calculated caches.
+Dependency edges point from formula cells to their inputs (`DEPENDS_ON`). Large,
+full-column, and full-row references remain compact range nodes. The parser
+supports same-sheet and quoted cross-sheet A1 references, absolute/mixed
+addresses, ranges, and case-insensitive workbook/sheet-scoped names. It reports
+external, structured, 3D, dynamic, broken, array/data-table, and unresolved
+references instead of inventing dependencies.
 
-Workbook inspection includes properties, hidden/veryHidden states, dimensions,
-nonempty/formula counts, native tables, merged ranges, named ranges, comments,
-hyperlinks, and image/chart counts. Image/chart extraction, inferred regions,
-narrative extraction, full quality scoring, rendering, UI, embeddings, and all
-agent/LM Studio features are deferred. Overall quality scores are null rather
-than invented; the quality report contains parser coverage and warnings.
+Quality is an unweighted mean of documented extraction coverage/confidence
+components. It measures extraction quality, not business or formula correctness.
 
-Uploads must be `.xlsx` OOXML ZIP files. Limits cover uploaded bytes, expanded
-ZIP size, and inspected sheet dimensions. `.xls`, `.xlsm`, encrypted files, and
-invalid packages are rejected or recorded as failed inspection. Detectable
-macro/data-connection parts are reported; no VBA, external links, or external
-data refresh is executed. Optional features never trigger a model call.
+## Configuration and tests
 
-## Configuration
-
-`app/config/settings.py` reads environment variables and `.env`. `DATA_DIR`
-defaults to `./data`; upload/output/database paths derive from it unless explicitly
-overridden. Limits are `MAX_UPLOAD_MB`, `MAX_UNCOMPRESSED_MB`, and
-`MAX_SHEET_CELLS`. The latter limits the rectangular sheet area traversed during
-inspection, so extremely sparse sheets with distant formatting may need a larger
-limit. Configuration fields for later phases are documented in `.env.example`
-but do not enable those features in Phase 1.
-
-## Tests and fixtures
+All settings are environment driven; see [.env.example](.env.example). Resource
+controls include upload/expanded-size limits, sheet/region caps, agent/tool/vector
+limits, and model/render timeouts. `DATA_DIR` defaults to `./data`; derived paths
+can be overridden. Use one Streamlit process or one Uvicorn worker per data
+directory. A file lock serializes workbook/DuckDB writes across both interfaces.
 
 ```bash
-python scripts/create_sample_workbooks.py --output tests/fixtures
-python -m pytest -q
-python -m ruff check app scripts tests
+uv run python scripts/create_sample_workbooks.py --output tests/fixtures
+uv run pytest -q
+uv run ruff check app scripts tests
 ```
 
-Tests generate their own isolated workbooks and data directories. They cover
-upload validation and limits, metadata persistence, sheet inventory, hidden
-sheets, comments and merged ranges, native tables, mixed types and blanks,
-formula/cached-value preservation, references and named scopes, compact graph
-ranges, manifest hashes, JSON/Parquet/DuckDB/GraphML outputs, concurrent-writer
-rejection, failed runs, empty workbooks, and reprocessing.
+Tests generate isolated workbooks and storage. Coverage includes upload limits,
+inspection, hidden sheets, comments, merges, native/inferred tables, formulas,
+named/cross-sheet references, graph assets, manifests, DuckDB migration,
+images/charts, quality, parent-preserving reprocessing, bounded agent tools,
+mocked/offline LM Studio, LanceDB search, rendering safeguards, API errors, and
+Streamlit upload/sample flows.
 
-The four reproducible fixtures are `fixture_simple.xlsx`,
-`fixture_multi_region.xlsx`, `fixture_cross_sheet.xlsx`, and `fixture_complex.xlsx`.
-The complex fixture has five sheets, hidden/veryHidden sheets, named ranges,
-a comment, hyperlink, merged cells, an embedded image, and a chart.
+The fixtures are `fixture_simple.xlsx`, `fixture_multi_region.xlsx`,
+`fixture_cross_sheet.xlsx`, and `fixture_complex.xlsx`. The complex fixture has
+five sheets, hidden states, names, comments, a merge, image, chart, formulas, and
+multiple logical regions.
 
 ## Module boundaries
 
-`pipeline/` handles deterministic ingestion, inspection, extraction, parsing,
-and normalization. `graph/` builds the in-memory NetworkX graph. `storage/`
-isolates SQLite, DuckDB, and graph persistence. `services/` coordinates API calls
-and local write serialization. `models/` contains Pydantic schemas. Empty
-`ui/`, `agents/`, `llm/`, and `tools/` packages reserve later extension points;
-there are no placeholder agent implementations or model dependencies.
+`pipeline/` owns extraction and optional enrichment orchestration. `agents/`
+contains the exception-resolution graph. `tools/` exposes bounded inspection and
+optional rendering. `llm/` contains the replaceable LM Studio transport.
+`storage/` isolates SQLite, DuckDB, graph, and vectors. `services/` coordinates
+operations; `ui/` and `api/` are thin local interfaces. These boundaries support
+later migration without rewriting workbook parsing.

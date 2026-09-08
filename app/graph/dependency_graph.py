@@ -20,6 +20,9 @@ def build_graph(
     regions: list[Region],
     tables: list[TableAsset],
     formulas: list[FormulaAsset],
+    texts=None,
+    images=None,
+    charts=None,
 ) -> nx.DiGraph:
     graph = nx.DiGraph(schema_version="1")
     graph.add_node(workbook.workbook_id, type="WORKBOOK", filename=workbook.filename)
@@ -48,4 +51,15 @@ def build_graph(
         for ref in f.references:
             target = add_location(ref.sheet, ref.address, ref.kind, ref.external)
             graph.add_edge(source, target, relationship="DEPENDS_ON")
+    for assets, id_field, kind in (
+        (texts or [], "text_asset_id", "TEXT_ASSET"),
+        (images or [], "image_id", "IMAGE"),
+        (charts or [], "chart_id", "CHART"),
+    ):
+        for asset in assets:
+            identifier = getattr(asset, id_field)
+            graph.add_node(identifier, type=kind)
+            graph.add_edge(
+                asset.region_id or asset.sheet_id or workbook.workbook_id, identifier, relationship="CONTAINS"
+            )
     return graph

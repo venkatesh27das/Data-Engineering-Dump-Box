@@ -162,7 +162,7 @@ def test_cached_formula_value(settings, tmp_path):
     service = RunService(settings)
     record = service.upload(cached, "cached.xlsx")
     run = service.process(record.workbook_id)
-    assert run.stage == "COMPLETED"
+    assert run.stage == "COMPLETED_WITH_WARNINGS"  # An unlabeled formula is a reviewable region.
     formula = json.loads((settings.output_dir / run.run_id / "formulas/formulas.jsonl").read_text())
     assert formula["formula"] == "=2+3"
     assert formula["cached_value"] == 5

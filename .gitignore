@@ -8,3 +8,5 @@ data/*.sqlite*
 data/*.duckdb*
 !data/**/.gitkeep
 tests/fixtures/*.xlsx
+
+data/*.lock

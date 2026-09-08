@@ -78,6 +78,35 @@ def test_errors(settings):
         assert client.post("/workbooks/missing/process").status_code == 404
         assert client.post("/workbooks/upload", files={"file": ("bad.xlsm", b"bad")}).status_code == 422
         assert client.post("/workbooks/upload", files={"file": ("bad.xlsx", b"bad")}).status_code == 422
+        assert client.post("/search", json={"query": "summary"}).status_code == 503
+
+
+def test_phase_five_api_assets(samples, settings):
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/health").json()["phase"] == 5
+        status = client.get("/system/status")
+        assert status.status_code == 200
+        assert set(status.json()) == {
+            "lm_studio",
+            "libreoffice_available",
+            "agent_configured",
+            "vlm_configured",
+            "embeddings_configured",
+        }
+        response = client.post(
+            "/workbooks/upload",
+            files={"file": ("complex.xlsx", samples["fixture_complex"].read_bytes())},
+        )
+        workbook_id = response.json()["workbook_id"]
+        run = client.post(f"/workbooks/{workbook_id}/process").json()
+        assert run["stage"] != "FAILED", run
+        for endpoint in ("regions", "text", "images", "charts", "summaries"):
+            response = client.get(f"/workbooks/{workbook_id}/{endpoint}")
+            assert response.status_code == 200
+            assert isinstance(response.json(), list)
+        assert len(client.get(f"/workbooks/{workbook_id}/images").json()) == 1
+        assert len(client.get(f"/workbooks/{workbook_id}/charts").json()) == 1
+        assert client.get(f"/workbooks/{workbook_id}/summaries").json()
 
 
 def test_failed_run(samples, settings):
